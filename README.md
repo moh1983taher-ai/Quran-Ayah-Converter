@@ -1,67 +1,47 @@
 # Quran Ayah Converter
 
-A standalone TypeScript engine for detecting Qur'anic quotations in Word documents and replacing only verified quotation ranges with the approved Uthmani Hafs text.
+A standalone TypeScript engine and Microsoft Word task pane for detecting Qur'anic quotations and preparing verified replacements using Uthmani Hafs text.
 
 ## Project principles
 
-- The Qur'an text used for replacement must come from a verified, versioned source.
-- Detection and replacement are separate stages.
-- Every detected passage carries source offsets, candidate surah/ayah references, evidence, and a confidence level.
-- Ambiguous matches are reported for review; they are never silently replaced.
-- Word integration is an adapter around the independent core engine.
-- The engine must preserve all text outside the approved quotation range.
+- Quran text used for replacement must come from a verified, versioned source.
+- Detection, human review, and replacement are separate stages.
+- Ambiguous matches are never silently replaced.
+- Word ranges are revalidated immediately before replacement.
+- Only approved quotation ranges are changed; surrounding paragraph text is not rebuilt.
+- Quran datasets and fonts are not redistributed until their specific terms are reviewed.
 
-## Architecture
+## Repository layout
 
-```text
-src/
-  core/
-    types.ts          Shared domain types
-    normalizer.ts     Arabic normalization with source-offset mapping
-    quran-index.ts    Local Qur'an index contract
-  word/
-    word-adapter.ts   Office.js integration boundary (planned)
-tests/
-  normalizer.test.ts
-data/
-  README.md           Data provenance and licensing requirements
-```
+- `src/core/`: Arabic normalization, indexing, alignment, and detection.
+- `src/word/`: Word task pane and guarded Office.js adapter.
+- `tests/`: automated unit and integration tests.
+- `data/`: provenance and import metadata; no redistributable Quran dataset is currently committed.
+- `manifest.xml`: Microsoft Word task pane add-in manifest.
+- `.github/workflows/deploy-word-addin.yml`: build and GitHub Pages deployment.
 
-## Current status
-
-The core now includes deterministic matching plus a conservative word-level fuzzy alignment pass. The fuzzy pass tolerates a small number of omitted, inserted, or altered words and labels these results for manual review. It does not authorize automatic replacement. The implementation also prepares a document's token index once and reuses it across candidate ayahs.
-
-This repository still does not include Qur'an text, fonts, a Word add-in manifest, or document replacement functionality.
-
-## Data provenance
-
-The intended primary reference is the King Fahd Glorious Qur'an Printing Complex developer platform:
-
-- https://qurancomplex.gov.sa/quran-dev/
-
-Before redistributing any Qur'an dataset or font, the exact file's terms of use and attribution requirements must be checked. The application must record the source, edition, version, and checksum of every imported dataset.
-
-The intended data model keeps both:
-- Uthmani text for verified replacement.
-- Imla'i text for search and matching.
-
-## Development
-
-Requirements: Node.js 20 or later.
+## Build and test
 
 ```bash
 npm install
-npm test
 npm run typecheck
+npm test
+npm run build:taskpane
 ```
 
-## License
+## Deployment
 
-The original source code in this repository is MIT-licensed. This license does **not** grant rights to third-party Qur'an datasets, fonts, or other assets; those remain subject to their respective terms.
+GitHub Actions builds the task pane and publishes the static site to GitHub Pages. The manifest's task pane URL is:
 
+`https://moh1983taher-ai.github.io/Quran-Ayah-Converter/taskpane.html`
 
-### Ayah identity resolution
+The add-in will not complete a scan until a validated `data/quran-hafs.json` is supplied. This is intentional: the app fails closed rather than using guessed or unverified Quran text.
 
-The core includes an evidence-weighted identity resolver. It ranks candidates using exact/normalized text, verse-bracket markers, explicit surah-and-ayah references, and fuzzy-alignment penalties. When two distinct identities have close scores, the detector returns an `ambiguous` result with the competing references instead of silently selecting one. Ambiguous results intentionally carry no canonical replacement text.
+## Current limitations
 
-This is a conservative first resolver, not a scholarly verification engine. Its weights and ambiguity margin require evaluation against a representative corpus of real Word documents before production use.
+- Body paragraphs are supported; tables, footnotes, and endnotes are not yet traversed.
+- Word range replacement is guarded by exact-text and unique-search checks.
+- Mixed-format preservation inside the replaced range still needs verification in actual Word clients.
+- The dataset's redistribution rights have not yet been cleared.
+
+The MIT license in this repository applies to original source code only, not third-party Quran datasets, fonts, or other assets.
