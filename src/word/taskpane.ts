@@ -1,15 +1,27 @@
 import { QuranAyahDetector } from "../core/detector.js";
 import { loadQuranDatasetJson } from "../core/dataset-loader.js";
 import { createReviewItems, setReviewDecision, type ReviewItem } from "./review-workflow.js";
-import { assertParagraphSnapshot, getWordRangeOffsets } from "./word-adapter.js";
+
 
 declare const Office: {
   onReady(callback: () => void): void;
   context: { requirements: { isSetSupported(name: string, version: string): boolean } };
 };
-declare const Word: { run<T>(callback: (context: WordContext) => Promise<T>): Promise<T> };
+declare const Word: {
+  run<T>(callback: (context: WordContext) => Promise<T>): Promise<T>;
+  run<T>(objects: WordRange[], callback: (context: WordContext) => Promise<T>): Promise<T>;
+};
 interface WordCollection<T> { items: T[]; load(property: string): WordCollection<T>; }
-interface WordRange { text: string; start: number; end: number; font: { name: string }; load(property: string): WordRange; insertText(text: string, location: "Replace"): WordRange; }
+interface WordRange {
+  text: string;
+  font: { name: string };
+  load(property: string): WordRange;
+  expandTo(range: WordRange): WordRange;
+  insertText(text: string, location: "Replace"): WordRange;
+  search(query: string, options: { matchCase: boolean; matchWholeWord: boolean }): WordCollection<WordRange>;
+  track(): WordRange;
+  untrack(): WordRange;
+}
 interface WordParagraph { text: string; getRange(location?: "Content" | "Whole"): WordRange; }
 interface WordContext { document: { body: { paragraphs: WordCollection<WordParagraph>; tables: WordCollection<unknown>; } }; sync(): Promise<void>; }
 
@@ -19,8 +31,14 @@ const byId = <T extends HTMLElement>(id: string): T => {
   return element as T;
 };
 let reviewItems: ReviewItem[] = [];
-const paragraphSnapshots = new Map<number, string>();
-const itemParagraphs = new Map<string, number>();
+interface StoredReviewedRange {
+  range: WordRange;
+  paragraphIndex: number;
+  start: number;
+  end: number;
+  expectedText: string;
+}
+const itemRanges = new Map<string, StoredReviewedRange>();
 let datasetPromise: Promise<ReturnType<typeof loadQuranDatasetJson>> | undefined;
 const toast = (message: string): void => {
   const node = byId<HTMLDivElement>("toast");
@@ -77,23 +95,43 @@ function renderResults(): void {
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.checked = item.decision === "approved" || item.decision === "applied";
-    checkbox.disabled = item.status === "ambiguous" || !item.replacementText || item.decision === "applied";
+    const hasWordRange = itemRanges.has(item.id);
+    checkbox.disabled = item.status === "ambiguous" || !item.replacementText || item.decision === "applied" || !hasWordRange;
     checkbox.addEventListener("change", () => {
       reviewItems = setReviewDecision(reviewItems, [item.id], checkbox.checked ? "approved" : "rejected");
       updateApplyButton();
     });
-    label.append(checkbox, document.createTextNode(item.decision === "applied" ? "تم تحويل هذا الموضع" : item.status === "ambiguous" ? "ملتبسة — غير قابلة للاعتماد" : "أوافق على تحويل هذا الموضع"));
+    const labelText = item.decision === "applied"
+      ? "تم تحويل هذا الموضع"
+      : item.status === "ambiguous"
+        ? "ملتبسة — غير قابلة للاعتماد"
+        : !hasWordRange
+          ? "تعذر تثبيت موضع الآية في Word — غير قابلة للاعتماد"
+          : "أوافق على تحويل هذا الموضع";
+    label.append(checkbox, document.createTextNode(labelText));
     card.append(top, original, canonical, evidence, label);
     root.append(card);
   }
   updateApplyButton();
 }
+async function releaseReviewedRanges(): Promise<void> {
+  const ranges = [...itemRanges.values()].map(entry => entry.range);
+  if (ranges.length) {
+    await Word.run(ranges, async context => {
+      for (const range of ranges) range.untrack();
+      await context.sync();
+    });
+  }
+  itemRanges.clear();
+}
+
 async function inspectDocument(): Promise<void> {
   const button = byId<HTMLButtonElement>("scanButton");
   button.disabled = true;
   button.textContent = "جارٍ فحص المستند…";
   setStatus("جارٍ تحميل قاعدة المصحف", "التحقق من بيانات حفص قبل البحث", "يفحص");
   try {
+    await releaseReviewedRanges();
     datasetPromise ??= loadDataset();
     const loaded = await datasetPromise;
     await Word.run(async context => {
@@ -105,20 +143,45 @@ async function inspectDocument(): Promise<void> {
       await context.sync();
       const detector = new QuranAyahDetector(loaded.index);
       reviewItems = [];
-      paragraphSnapshots.clear();
-      itemParagraphs.clear();
-      paragraphs.items.forEach((_paragraph, index) => {
+      itemRanges.clear();
+      for (let index = 0; index < paragraphs.items.length; index += 1) {
+        const paragraph = paragraphs.items[index]!;
         const paragraphText = contentRanges[index]!.text;
-        paragraphSnapshots.set(index, paragraphText);
         const local = createReviewItems(paragraphText, detector.detect(paragraphText));
         const scoped = local.map(item => ({
           ...item,
           id: `p${index}:${item.id}`,
           evidence: [...item.evidence, { type: "context" as const, detail: `الفقرة ${index + 1}` }]
         }));
-        for (const item of scoped) itemParagraphs.set(item.id, index);
+
+        for (const item of scoped) {
+          if (item.status === "ambiguous" || !item.replacementText.trim()) continue;
+
+          let start = item.sourceStart;
+          let end = item.sourceEnd;
+          if (paragraphText[start - 1] === "﴿" && paragraphText[end] === "﴾") {
+            start -= 1;
+            end += 1;
+          }
+
+          try {
+            const range = await resolveReviewedRange(context, paragraph, paragraphText, start, end);
+            itemRanges.set(item.id, {
+              range,
+              paragraphIndex: index,
+              start,
+              end,
+              expectedText: paragraphText.slice(start, end)
+            });
+          } catch {
+            item.evidence.push({
+              type: "context",
+              detail: "تعذر تثبيت موضع هذه الآية في Word؛ لم يُتح الاستبدال."
+            });
+          }
+        }
         reviewItems.push(...scoped);
-      });
+      }
       renderResults();
       setStatus("اكتمل فحص المستند", `${paragraphs.items.length} فقرة · ${tables.items.length} جدول · ${reviewItems.length} نتيجة`, "اكتمل");
       if (!reviewItems.length) {
@@ -141,6 +204,22 @@ async function inspectDocument(): Promise<void> {
  * Build the exact reviewed range from Word's absolute character positions.
  * No Search API, anchors, or paragraph reconstruction are used.
  */
+function countAnchorOccurrencesBefore(text: string, anchor: string, offset: number): number {
+  let count = 0;
+  let cursor = 0;
+  while (cursor < offset) {
+    const found = text.indexOf(anchor, cursor);
+    if (found < 0 || found >= offset) break;
+    count += 1;
+    cursor = found + anchor.length;
+  }
+  return count;
+}
+
+/**
+ * Resolves a range once during scanning, verifies it, and tracks the actual
+ * Word.Range proxy so the approval phase can reuse that same object.
+ */
 async function resolveReviewedRange(
   context: WordContext,
   paragraph: WordParagraph,
@@ -149,91 +228,77 @@ async function resolveReviewedRange(
   end: number
 ): Promise<WordRange> {
   const expected = snapshot.slice(start, end);
-  if (!expected) throw new Error("نطاق الآية فارغ؛ أُلغي الاستبدال.");
+  if (!expected) throw new Error("نطاق الآية فارغ؛ أُلغي تثبيت الموضع.");
 
-  const range = paragraph.getRange("Content").load("text,start,end");
-  await context.sync();
-  assertParagraphSnapshot(range.text, snapshot);
+  const content = paragraph.getRange("Content");
+  const options = { matchCase: true, matchWholeWord: false };
+  let exactRange: WordRange;
 
-  let absoluteOffsets: { start: number; end: number };
-  try {
-    absoluteOffsets = getWordRangeOffsets(range.start, range.end, snapshot, start, end);
-  } catch {
-    throw new Error("تعذر مطابقة مواضع الأحرف في Word مع نص الفقرة؛ أُلغي الاستبدال حمايةً للمستند.");
+  if (expected.length <= 240) {
+    const occurrence = countAnchorOccurrencesBefore(snapshot, expected, start);
+    const matches = content.search(expected, options).load("items");
+    await context.sync();
+    const match = matches.items[occurrence];
+    if (!match) throw new Error("تعذر تثبيت موضع النص المطابق في Word.");
+    exactRange = match;
+  } else {
+    // Word Search is limited to 255 characters; search two real text segments.
+    const chunkLength = Math.min(200, Math.floor(expected.length / 2));
+    const prefix = expected.slice(0, chunkLength);
+    const suffix = expected.slice(expected.length - chunkLength);
+    const prefixOccurrence = countAnchorOccurrencesBefore(snapshot, prefix, start);
+    const suffixOccurrence = countAnchorOccurrencesBefore(snapshot, suffix, end - chunkLength);
+
+    const prefixMatches = content.search(prefix, options).load("items");
+    const suffixMatches = content.search(suffix, options).load("items");
+    await context.sync();
+
+    const prefixRange = prefixMatches.items[prefixOccurrence];
+    const suffixRange = suffixMatches.items[suffixOccurrence];
+    if (!prefixRange || !suffixRange) {
+      throw new Error("تعذر تثبيت بداية الآية ونهايتها في Word.");
+    }
+    exactRange = prefixRange.expandTo(suffixRange).load("text");
+    await context.sync();
   }
 
-  // Contract the end first, then move the start to the reviewed offset.
-  range.end = absoluteOffsets.end;
-  range.start = absoluteOffsets.start;
-  range.load("text");
+  exactRange.load("text");
   await context.sync();
-
-  if (range.text !== expected) {
-    throw new Error("النطاق المحدد بالإحداثيات لا يطابق نص الآية الذي تمت مراجعته؛ أُلغي الاستبدال.");
+  if (exactRange.text !== expected) {
+    throw new Error("موضع Word لا يطابق نص الآية الذي تمت مراجعته.");
   }
-  return range;
+
+  exactRange.track();
+  await context.sync();
+  return exactRange;
 }
 
 async function applyApprovedReplacements(): Promise<void> {
   const approved = reviewItems.filter(item => item.decision === "approved");
   if (!approved.length) return;
 
-  if (!Office.context.requirements.isSetSupported("WordApiDesktop", "1.4")) {
-    const message = "يتطلب الاستبدال الدقيق إصدار Word المكتبي الداعم لواجهة WordApiDesktop 1.4؛ لم يُجرَ أي تعديل على المستند.";
-    setStatus("ميزة تحديد النطاق غير مدعومة", message, "غير مدعوم");
-    toast(message);
-    return;
-  }
+  const entries = approved.map(item => {
+    const stored = itemRanges.get(item.id);
+    if (!stored) throw new Error("موضع إحدى الآيات غير مثبت في Word؛ أُلغي الاستبدال.");
+    return { item, ...stored };
+  });
+
   const button = byId<HTMLButtonElement>("applyButton");
   button.disabled = true;
-  setStatus("جارٍ التحقق من مواضع الاستبدال", "مطابقة نطاق كل آية وأقواسها قبل أي تعديل", "يتحقق");
+  setStatus("جارٍ التحقق من المواضع المحفوظة", "التحقق من النطاقات نفسها التي ثُبّتت أثناء الفحص", "يتحقق");
   try {
-    await Word.run(async context => {
-      const paragraphs = context.document.body.paragraphs.load("items");
+    const ranges = entries.map(entry => entry.range);
+    await Word.run(ranges, async context => {
+      for (const entry of entries) entry.range.load("text");
       await context.sync();
 
-      const pending: Array<{
-        paragraphIndex: number;
-        start: number;
-        end: number;
-        range: WordRange;
-        replacementText: string;
-      }> = [];
-
-      // Preflight every approved range before changing any text.
-      for (const item of approved) {
-        const paragraphIndex = itemParagraphs.get(item.id);
-        const paragraph = paragraphIndex === undefined ? undefined : paragraphs.items[paragraphIndex];
-        const snapshot = paragraphIndex === undefined ? undefined : paragraphSnapshots.get(paragraphIndex);
-        if (paragraphIndex === undefined || !paragraph || snapshot === undefined) {
-          throw new Error("تعذر تحديد الفقرة الأصلية؛ أُلغي الاستبدال.");
+      for (const entry of entries) {
+        if (entry.range.text !== entry.expectedText) {
+          throw new Error("تغير نص إحدى الآيات بعد المراجعة؛ أُلغي الاستبدال حمايةً للمستند.");
         }
-
-        let start = item.sourceStart;
-        let end = item.sourceEnd;
-        // Include ornamental Qur'anic brackets in the replacement range.
-        if (snapshot[start - 1] === "﴿" && snapshot[end] === "﴾") {
-          start -= 1;
-          end += 1;
-        }
-        const expected = snapshot.slice(start, end);
-        if (!expected || snapshot.slice(item.sourceStart, item.sourceEnd) !== item.originalText) {
-          throw new Error("لم يعد النص المحدد مطابقًا لما تمت مراجعته؛ أُلغي الاستبدال.");
-        }
-
-        // Resolve the reviewed offsets directly through Word.Range.start/end.
-        const range = await resolveReviewedRange(context, paragraph, snapshot, start, end);
-        pending.push({
-          paragraphIndex,
-          start,
-          end,
-          range,
-          replacementText: item.replacementText
-        });
       }
 
-      // Refuse duplicate targets before making any change.
-      const ordered = [...pending].sort((a, b) =>
+      const ordered = [...entries].sort((a, b) =>
         a.paragraphIndex - b.paragraphIndex || b.start - a.start
       );
       for (let i = 1; i < ordered.length; i += 1) {
@@ -245,19 +310,23 @@ async function applyApprovedReplacements(): Promise<void> {
         }
       }
 
-      // Replace only each exact verse range, never the paragraph.
+      // Reuse the exact Word.Range proxies created during the scan.
       for (const entry of ordered) {
-        const inserted = entry.range.insertText(entry.replacementText, "Replace");
+        const inserted = entry.range.insertText(entry.item.replacementText, "Replace");
         inserted.font.name = "KFGQPC Uthmanic Script HAFS";
       }
       await context.sync();
+
+      for (const entry of entries) entry.range.untrack();
+      await context.sync();
     });
 
+    for (const item of approved) itemRanges.delete(item.id);
     reviewItems = reviewItems.map(item =>
       item.decision === "approved" ? { ...item, decision: "applied" } : item
     );
     renderResults();
-    setStatus("اكتمل الاستبدال", `تم تحويل ${approved.length} موضعًا دون إعادة كتابة الفقرات.`, "اكتمل");
+    setStatus("اكتمل الاستبدال", `تم تحويل ${approved.length} موضعًا باستخدام النطاقات المحفوظة.`, "اكتمل");
     toast(`اكتمل تحويل ${approved.length} موضعًا معتمدًا.`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
