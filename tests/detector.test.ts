@@ -55,6 +55,15 @@ describe("QuranAyahDetector", () => {
     expect(matches.some(item => item.references.some(ref => ref.surah === 2 && ref.ayah === 255))).toBe(true);
   });
 
+
+  it("finds more than one unmarked quotation in the same text segment", () => {
+    const text = "بسم الله الرحمن الرحيم ثم قال الحمد لله رب العالمين";
+    const matches = detector.detect(text);
+    expect(matches.length).toBeGreaterThanOrEqual(2);
+    expect(matches.some(item => item.references[0]?.ayah === 1)).toBe(true);
+    expect(matches.some(item => item.references[0]?.ayah === 2)).toBe(true);
+  });
+
   it("does not create a match for unrelated text", () => {
     expect(detector.detect("هذا نص عربي عادي لا يتضمن اقتباسا قرآنيا.")).toHaveLength(0);
   });
