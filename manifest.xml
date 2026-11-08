@@ -3,7 +3,7 @@
            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
            xsi:type="TaskPaneApp">
   <Id>4d4f5a8e-0c2e-4d89-9b45-7a2e0a7e1f36</Id>
-  <Version>0.1.0.0</Version>
+  <Version>0.2.0.0</Version>
   <ProviderName>Quran Ayah Converter</ProviderName>
   <DefaultLocale>ar-SA</DefaultLocale>
   <DisplayName DefaultValue="محوّل الآيات القرآنية"/>
@@ -26,4 +26,66 @@
     <SourceLocation DefaultValue="https://moh1983taher-ai.github.io/Quran-Ayah-Converter/taskpane.html"/>
   </DefaultSettings>
   <Permissions>ReadWriteDocument</Permissions>
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+                    xsi:type="VersionOverridesV1_0">
+    <Hosts>
+      <Host xsi:type="Document">
+        <DesktopFormFactor>
+          <GetStarted>
+            <Title resid="GetStarted.Title"/>
+            <Description resid="GetStarted.Description"/>
+            <LearnMoreUrl resid="GetStarted.LearnMoreUrl"/>
+          </GetStarted>
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="QuranAyah.Group">
+                <Label resid="Group.Label"/>
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16"/>
+                  <bt:Image size="32" resid="Icon.32"/>
+                  <bt:Image size="80" resid="Icon.80"/>
+                </Icon>
+                <Control xsi:type="Button" id="QuranAyah.Open">
+                  <Label resid="Button.Label"/>
+                  <Supertip>
+                    <Title resid="Button.Label"/>
+                    <Description resid="Button.Description"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Icon.16"/>
+                    <bt:Image size="32" resid="Icon.32"/>
+                    <bt:Image size="80" resid="Icon.80"/>
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>QuranAyah.Taskpane</TaskpaneId>
+                    <SourceLocation resid="Taskpane.Url"/>
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+    <Resources>
+      <bt:Images xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0">
+        <bt:Image id="Icon.16" DefaultValue="https://moh1983taher-ai.github.io/Quran-Ayah-Converter/assets/icon-16.png"/>
+        <bt:Image id="Icon.32" DefaultValue="https://moh1983taher-ai.github.io/Quran-Ayah-Converter/assets/icon-32.png"/>
+        <bt:Image id="Icon.80" DefaultValue="https://moh1983taher-ai.github.io/Quran-Ayah-Converter/assets/icon-80.png"/>
+      </bt:Images>
+      <bt:Urls xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0">
+        <bt:Url id="Taskpane.Url" DefaultValue="https://moh1983taher-ai.github.io/Quran-Ayah-Converter/taskpane.html"/>
+        <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://github.com/moh1983taher-ai/Quran-Ayah-Converter"/>
+      </bt:Urls>
+      <bt:ShortStrings xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0">
+        <bt:String id="Group.Label" DefaultValue="أدوات القرآن"/>
+        <bt:String id="Button.Label" DefaultValue="محوّل الآيات"/>
+        <bt:String id="GetStarted.Title" DefaultValue="محوّل الآيات القرآنية"/>
+      </bt:ShortStrings>
+      <bt:LongStrings xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0">
+        <bt:String id="Button.Description" DefaultValue="فتح محوّل الآيات القرآنية لمراجعة الاقتباسات وتحويلها إلى الرسم العثماني."/>
+        <bt:String id="GetStarted.Description" DefaultValue="افتح محوّل الآيات من تبويب الصفحة الرئيسية في Word."/>
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
 </OfficeApp>
