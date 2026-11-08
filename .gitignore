@@ -3,3 +3,7 @@ dist/
 coverage/
 *.log
 .DS_Store
+
+# Downloaded and generated Qur'an dataset (local only until terms are cleared)
+data/_raw/
+data/quran-hafs.json
