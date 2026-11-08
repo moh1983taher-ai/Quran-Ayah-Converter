@@ -264,7 +264,7 @@ export class QuranAyahDetector {
     source: string,
     records: readonly QuranAyahRecord[],
     allowShort: boolean
-  ): { start: number; end: number; records: QuranAyahRecord[]; evidence: MatchEvidence[]; confidence: number } | undefined {
+  ): { start: number; end: number; records: QuranAyahRecord[]; evidence: MatchEvidence[]; confidence: number; replacementText?: string } | undefined {
     const sourceNormalized = normalizeArabicWithMap(source);
     const normalizedText = sourceNormalized.value;
     if (!normalizedText) return undefined;
