@@ -41,6 +41,31 @@ describe("Word review workflow", () => {
     expect(replacements[0]?.replacementText).toBe("النص العثماني");
   });
 
+  it("allows approval of a repeated excerpt when all references share one Uthmani rendering", () => {
+    const source = "قبل مقتطف قرآني بعد";
+    const start = source.indexOf("مقتطف قرآني");
+    const items = createReviewItems(source, [
+      match({
+        sourceStart: start,
+        sourceEnd: start + "مقتطف قرآني".length,
+        references: [{ surah: 23, ayah: 19 }, { surah: 36, ayah: 34 }],
+        replacementText: "نَصٌّ قُرْآنِيٌّ",
+        evidence: [
+          { type: "exact-text", detail: "exact" },
+          { type: "context", detail: "المقتطف مكرر في المواضع المذكورة، والرسم العثماني متطابق" }
+        ]
+      })
+    ]);
+    const approved = setReviewDecision(items, [items[0]!.id], "approved");
+    const replacements = buildApprovedReplacements(approved);
+    expect(replacements).toHaveLength(1);
+    expect(replacements[0]?.replacementText).toBe("نَصٌّ قُرْآنِيٌّ");
+    expect(replacements[0]?.location.references).toEqual([
+      { surah: 23, ayah: 19 },
+      { surah: 36, ayah: 34 }
+    ]);
+  });
+
   it("rejects approval of ambiguous matches", () => {
     const source = "قبل آية نص بعد";
     const start = source.indexOf("آية نص");
