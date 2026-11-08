@@ -150,9 +150,9 @@ export class QuranAyahDetector {
       }
     }
 
-    // Third: unmarked quotations anywhere in the text.
-    const unmarked = this.matchPassage(text, records, false);
-    if (unmarked && unmarked.end - unmarked.start >= this.options.minimumUnmarkedLength) {
+    // Third: all unmarked quotations, not just the single longest match.
+    for (const unmarked of this.matchAllPassages(text, records)) {
+      if (unmarked.end - unmarked.start < this.options.minimumUnmarkedLength) continue;
       candidates.push({
         start: unmarked.start,
         end: unmarked.end,
@@ -166,6 +166,52 @@ export class QuranAyahDetector {
     }
 
     return this.resolveOverlaps(candidates, text);
+  }
+
+  private matchAllPassages(
+    source: string,
+    records: readonly QuranAyahRecord[]
+  ): Array<{ start: number; end: number; records: QuranAyahRecord[]; evidence: MatchEvidence[]; confidence: number }> {
+    const normalized = normalizeArabicWithMap(source);
+    const output: Array<{ start: number; end: number; records: QuranAyahRecord[]; evidence: MatchEvidence[]; confidence: number }> = [];
+
+    for (let i = 0; i < records.length; i += 1) {
+      const group: QuranAyahRecord[] = [];
+      let phrase = "";
+
+      for (let j = i; j < records.length && group.length < this.options.maximumAyahsPerMatch; j += 1) {
+        const current = records[j];
+        if (!current) break;
+        if (group.length > 0) {
+          const previous = group[group.length - 1]!;
+          if (current.surah !== previous.surah || current.ayah !== previous.ayah + 1) break;
+        }
+        group.push(current);
+        phrase += (phrase ? " " : "") + normalizeArabicWithMap(current.imlaei).value;
+        if (phrase.length < this.options.minimumUnmarkedLength) continue;
+
+        let cursor = 0;
+        while (cursor <= normalized.value.length - phrase.length) {
+          const found = findBoundaryAwareFrom(normalized.value, phrase, cursor);
+          if (!found) break;
+          const mapped = mapNormalizedRange(normalized, found.start, found.end);
+          if (mapped) {
+            output.push({
+              ...mapped,
+              records: [...group],
+              evidence: [{
+                type: "normalized-text",
+                detail: "تطابق نصي بعد تطبيع الرسم"
+              }],
+              confidence: 0.975
+            });
+          }
+          cursor = found.end;
+        }
+      }
+    }
+
+    return output;
   }
 
   private matchPassage(
@@ -328,8 +374,16 @@ function findBoundaryAware(
   haystack: string,
   needle: string
 ): { start: number; end: number; exact: boolean } | undefined {
+  return findBoundaryAwareFrom(haystack, needle, 0);
+}
+
+function findBoundaryAwareFrom(
+  haystack: string,
+  needle: string,
+  fromIndex: number
+): { start: number; end: number; exact: boolean } | undefined {
   if (!needle) return undefined;
-  let index = haystack.indexOf(needle);
+  let index = haystack.indexOf(needle, fromIndex);
   while (index >= 0) {
     const before = index === 0 ? "" : haystack[index - 1]!;
     const after = index + needle.length >= haystack.length ? "" : haystack[index + needle.length]!;
