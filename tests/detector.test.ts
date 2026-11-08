@@ -3,6 +3,7 @@ import { findFuzzyTokenAlignments } from "../src/core/alignment.js";
 import { QuranAyahDetector } from "../src/core/detector.js";
 import { InMemoryQuranIndex } from "../src/core/quran-index.js";
 import type { QuranAyahRecord } from "../src/core/types.js";
+import { normalizeArabic } from "../src/core/normalizer.js";
 
 const records: QuranAyahRecord[] = [
   {
@@ -97,7 +98,7 @@ describe("QuranAyahDetector", () => {
         item.references.some(reference => reference.surah === 16 && reference.ayah === ayah)
       );
       expect(match, quotation).toBeDefined();
-      expect(normalizeArabicForTest(match!.canonicalText)).toBe(normalizeArabicForTest(
+      expect(normalizeArabic(match!.canonicalText)).toBe(normalizeArabic(
         quotation === "لكم منه شراب" ? "لَّكُم مِّنْهُ شَرَابٌ" :
         quotation === "ومنه شجر" ? "وَمِنْهُ شَجَرٌ" :
         quotation === "فيه تسيمون" ? "فِيهِ تُسِيمُونَ" :
