@@ -37,6 +37,15 @@ interface ExplicitReference {
   raw: string;
 }
 
+interface PassageMatch {
+  start: number;
+  end: number;
+  records: QuranAyahRecord[];
+  evidence: MatchEvidence[];
+  confidence: number;
+  replacementText?: string;
+}
+
 const DEFAULTS: Required<DetectorOptions> = {
   minimumUnmarkedLength: 14,
   maximumAyahsPerMatch: 8,
@@ -136,8 +145,8 @@ export class QuranAyahDetector {
         const contentStart = start + open.length;
         const contentEnd = endMarker;
         const content = text.slice(contentStart, contentEnd);
-        const match = this.matchPassage(content, records, true);
-        if (match) {
+        const matches = this.matchPassage(content, records, true);
+        for (const match of matches) {
           // When the matched quotation occupies the complete bracket content,
           // include the existing ornamental delimiters in the replacement range.
           // Word can then replace the pair and the excerpt together, avoiding
@@ -276,49 +285,60 @@ export class QuranAyahDetector {
     source: string,
     records: readonly QuranAyahRecord[],
     allowShort: boolean
-  ): { start: number; end: number; records: QuranAyahRecord[]; evidence: MatchEvidence[]; confidence: number; replacementText?: string } | undefined {
+  ): PassageMatch[] {
     const sourceNormalized = normalizeArabicWithMap(source);
     const normalizedText = sourceNormalized.value;
-    if (!normalizedText) return undefined;
+    if (!normalizedText) return [];
 
-    // Marked quotations can be exact contiguous excerpts from longer ayahs.
+    // Marked quotations may be short excerpts, including the first words of
+    // an ayah or a single distinctive word. Exact matches are collected across
+    // the full index so repeated phrases can be surfaced as ambiguous.
     if (allowShort) {
       const sourceTokens = tokenizeArabic(source);
-      if (sourceTokens.length >= 2) {
+      if (sourceTokens.length >= 1) {
         const sourceValues = sourceTokens.map(token => token.value);
-        const fragmentMatches: Array<{ record: QuranAyahRecord; start: number; end: number; replacementText: string }> = [];
+        const fragmentMatches: Array<{
+          record: QuranAyahRecord;
+          start: number;
+          end: number;
+          replacementText: string;
+        }> = [];
+
         for (const record of records) {
-          const canonicalValues = tokenizeArabic(record.imlaei).map(token => token.value);
+          const canonicalTokens = tokenizeArabic(record.imlaei);
+          const canonicalValues = canonicalTokens.map(token => token.value);
           for (let offset = 0; offset <= canonicalValues.length - sourceValues.length; offset += 1) {
-            // Very short generic phrases at the beginning of an ayah are
-            // too weak to identify it safely (e.g. "الله لا إله").
-            // Short excerpts are accepted only when they occur inside the ayah;
-            // longer excerpts can also match from the ayah's beginning.
-            if (sourceValues.length < 4 && offset === 0) continue;
-            if (sourceValues.every((value, index) => canonicalValues[offset + index] === value)) {
-              // Keep the exact matching word slice from the canonical Uthmani
-              // text. The full ayah identifies the source, but must never
-              // replace a shorter quotation in the user's document.
-              const uthmaniTokens = tokenizeArabic(record.uthmani);
-              const uthmaniSlice = uthmaniTokens.slice(offset, offset + sourceValues.length);
-              if (uthmaniSlice.length !== sourceValues.length) continue;
-              fragmentMatches.push({
-                record,
-                start: sourceTokens[0]!.start,
-                end: sourceTokens[sourceTokens.length - 1]!.end,
-                replacementText: record.uthmani.slice(
-                  uthmaniSlice[0]!.start,
-                  uthmaniSlice[uthmaniSlice.length - 1]!.end
-                )
-              });
-              break;
-            }
+            if (!sourceValues.every((value, index) => canonicalValues[offset + index] === value)) continue;
+
+            // Keep the exact matching word slice from the canonical Uthmani
+            // text. The full ayah identifies the source, but must never replace
+            // a shorter quotation in the user's document.
+            const uthmaniTokens = tokenizeArabic(record.uthmani);
+            const uthmaniSlice = uthmaniTokens.slice(offset, offset + sourceValues.length);
+            if (uthmaniSlice.length !== sourceValues.length) continue;
+            fragmentMatches.push({
+              record,
+              start: sourceTokens[0]!.start,
+              end: sourceTokens[sourceTokens.length - 1]!.end,
+              replacementText: record.uthmani.slice(
+                uthmaniSlice[0]!.start,
+                uthmaniSlice[uthmaniSlice.length - 1]!.end
+              )
+            });
+            break;
           }
         }
-        // Never guess the identity of an exact phrase repeated in multiple ayahs.
-        if (fragmentMatches.length === 1) {
-          const found = fragmentMatches[0]!;
-          return {
+
+        if (fragmentMatches.length > 0) {
+          // A single isolated word is useful only when it identifies exactly
+          // one ayah. Common words should not flood the review panel.
+          if (sourceValues.length === 1 && fragmentMatches.length !== 1) return [];
+
+          // Two- and three-word excerpts may legitimately occur in more than
+          // one ayah. Return every exact source candidate; resolveOverlaps will
+          // preserve that as an explicit ambiguity rather than silently skip
+          // it or choose an arbitrary verse.
+          return fragmentMatches.map(found => ({
             start: found.start,
             end: found.end,
             records: [found.record],
@@ -328,20 +348,19 @@ export class QuranAyahDetector {
               detail: "مقطع متصل مطابق لألفاظ آية قرآنية داخل الأقواس"
             }],
             confidence: 0.99
-          };
+          }));
         }
-        if (fragmentMatches.length > 1) return undefined;
 
         // A bracketed excerpt may contain one omitted, inserted, or differently
-        // written word. Search contiguous windows inside each ayah, not only
-        // windows as long as the complete ayah. Keep these suggestions in review.
-        if (sourceValues.length >= 5) {
-          const fuzzyFragments: Array<{
+        // written word. Four-token excerpts are sufficiently constrained for
+        // a single-edit suggestion, but are always held for human review.
+        if (sourceValues.length >= 4) {
+          const fuzzyByRecord = new Map<string, {
             record: QuranAyahRecord;
             sourceStart: number;
             sourceEnd: number;
             replacementText: string;
-          }> = [];
+          }>();
 
           for (const record of records) {
             const canonicalTokens = tokenizeArabic(record.imlaei);
@@ -360,21 +379,20 @@ export class QuranAyahDetector {
                 const first = canonicalSlice[0];
                 const last = canonicalSlice[canonicalSlice.length - 1];
                 if (!first || !last) continue;
-                fuzzyFragments.push({
-                  record,
-                  sourceStart: sourceTokens[0]!.start,
-                  sourceEnd: sourceTokens[sourceTokens.length - 1]!.end,
-                  replacementText: record.uthmani.slice(first.start, last.end)
-                });
+                if (!fuzzyByRecord.has(record.id)) {
+                  fuzzyByRecord.set(record.id, {
+                    record,
+                    sourceStart: sourceTokens[0]!.start,
+                    sourceEnd: sourceTokens[sourceTokens.length - 1]!.end,
+                    replacementText: record.uthmani.slice(first.start, last.end)
+                  });
+                }
               }
             }
           }
 
-          // A near-match is surfaced only when exactly one verse window fits.
-          // Multiple plausible locations remain undetected rather than guessed.
-          if (fuzzyFragments.length === 1) {
-            const found = fuzzyFragments[0]!;
-            return {
+          if (fuzzyByRecord.size > 0) {
+            return [...fuzzyByRecord.values()].map(found => ({
               start: found.sourceStart,
               end: found.sourceEnd,
               records: [found.record],
@@ -384,7 +402,7 @@ export class QuranAyahDetector {
                 detail: "مقتطف متصل قريب من نص آية؛ اختلاف كلمة واحدة ويحتاج إلى مراجعة"
               }],
               confidence: 0.89
-            };
+            }));
           }
         }
       }
@@ -440,15 +458,15 @@ export class QuranAyahDetector {
     if (!best) {
       const fuzzy = this.findFuzzyMatches(source, records, allowShort)
         .sort((a, b) => b.confidence - a.confidence)[0];
-      return fuzzy;
+      return fuzzy ? [fuzzy] : [];
     }
-    return {
+    return [{
       start: best.start,
       end: best.end,
       records: best.records,
       evidence: best.evidence,
       confidence: best.confidence
-    };
+    }];
   }
 
   private findExplicitReferences(text: string): ExplicitReference[] {
