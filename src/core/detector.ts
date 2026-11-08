@@ -315,7 +315,7 @@ export class QuranAyahDetector {
             }
           }
         }
-        // Never guess the identity of a short phrase repeated in multiple ayahs.
+        // Never guess the identity of an exact phrase repeated in multiple ayahs.
         if (fragmentMatches.length === 1) {
           const found = fragmentMatches[0]!;
           return {
@@ -329,6 +329,63 @@ export class QuranAyahDetector {
             }],
             confidence: 0.99
           };
+        }
+        if (fragmentMatches.length > 1) return undefined;
+
+        // A bracketed excerpt may contain one omitted, inserted, or differently
+        // written word. Search contiguous windows inside each ayah, not only
+        // windows as long as the complete ayah. Keep these suggestions in review.
+        if (sourceValues.length >= 5) {
+          const fuzzyFragments: Array<{
+            record: QuranAyahRecord;
+            sourceStart: number;
+            sourceEnd: number;
+            replacementText: string;
+          }> = [];
+
+          for (const record of records) {
+            const canonicalTokens = tokenizeArabic(record.imlaei);
+            const canonicalValues = canonicalTokens.map(token => token.value);
+            const uthmaniTokens = tokenizeArabic(record.uthmani);
+            if (uthmaniTokens.length !== canonicalTokens.length) continue;
+
+            const shortestWindow = Math.max(4, sourceValues.length - 1);
+            const longestWindow = sourceValues.length + 1;
+            for (let length = shortestWindow; length <= longestWindow; length += 1) {
+              for (let offset = 0; offset + length <= canonicalValues.length; offset += 1) {
+                const window = canonicalValues.slice(offset, offset + length);
+                if (tokenEditDistance(sourceValues, window, 1) !== 1) continue;
+
+                const canonicalSlice = uthmaniTokens.slice(offset, offset + length);
+                const first = canonicalSlice[0];
+                const last = canonicalSlice[canonicalSlice.length - 1];
+                if (!first || !last) continue;
+                fuzzyFragments.push({
+                  record,
+                  sourceStart: sourceTokens[0]!.start,
+                  sourceEnd: sourceTokens[sourceTokens.length - 1]!.end,
+                  replacementText: record.uthmani.slice(first.start, last.end)
+                });
+              }
+            }
+          }
+
+          // A near-match is surfaced only when exactly one verse window fits.
+          // Multiple plausible locations remain undetected rather than guessed.
+          if (fuzzyFragments.length === 1) {
+            const found = fuzzyFragments[0]!;
+            return {
+              start: found.sourceStart,
+              end: found.sourceEnd,
+              records: [found.record],
+              replacementText: found.replacementText,
+              evidence: [{
+                type: "fuzzy-alignment",
+                detail: "مقتطف متصل قريب من نص آية؛ اختلاف كلمة واحدة ويحتاج إلى مراجعة"
+              }],
+              confidence: 0.89
+            };
+          }
         }
       }
     }
@@ -544,6 +601,35 @@ export class QuranAyahDetector {
         item.candidate.status
     }));
   }
+}
+
+function tokenEditDistance(
+  left: readonly string[],
+  right: readonly string[],
+  maximumDistance: number
+): number {
+  if (Math.abs(left.length - right.length) > maximumDistance) {
+    return maximumDistance + 1;
+  }
+
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= left.length; row += 1) {
+    const current = Array<number>(right.length + 1).fill(maximumDistance + 1);
+    current[0] = row;
+    let rowMinimum = current[0]!;
+    for (let column = 1; column <= right.length; column += 1) {
+      const substitution = previous[column - 1]! + (left[row - 1] === right[column - 1] ? 0 : 1);
+      current[column] = Math.min(
+        previous[column]! + 1,
+        current[column - 1]! + 1,
+        substitution
+      );
+      rowMinimum = Math.min(rowMinimum, current[column]!);
+    }
+    if (rowMinimum > maximumDistance) return maximumDistance + 1;
+    previous = current;
+  }
+  return previous[right.length]!;
 }
 
 function isBracketPadding(value: string): boolean {
