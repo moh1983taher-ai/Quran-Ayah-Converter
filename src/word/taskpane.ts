@@ -156,6 +156,8 @@ async function inspectDocument(): Promise<void> {
         const scoped = local.map(item => ({
           ...item,
           id: `p${index}:${item.id}`,
+          // Every approved replacement uses the Qur'anic ornamental brackets.
+          replacementText: `﴿${item.replacementText}﴾`,
           evidence: [...item.evidence, { type: "context" as const, detail: `الفقرة ${index + 1}` }]
         }));
 
@@ -164,7 +166,15 @@ async function inspectDocument(): Promise<void> {
 
           let start = item.sourceStart;
           let end = item.sourceEnd;
-          if (paragraphText[start - 1] === "﴿" && paragraphText[end] === "﴾") {
+          // Include any existing verse delimiters in the replacement range,
+          // including the legacy private-use glyph pair used by older documents.
+          const bracketPairs: ReadonlyArray<readonly [string, string]> = [
+            ["﴿", "﴾"],
+            ["", ""]
+          ];
+          const opening = paragraphText[start - 1];
+          const closing = paragraphText[end];
+          if (bracketPairs.some(([left, right]) => opening === left && closing === right)) {
             start -= 1;
             end += 1;
           }
