@@ -48,3 +48,10 @@ Run `npm run import:kfgqpc` from the repository root. The script downloads the o
 The archive checksum is currently a **provisional cross-check reported by the metadata mirror**, not yet independently confirmed against a successful direct download in this project. The script deliberately stops if the downloaded bytes differ. It never modifies the source text and does not publish the resulting dataset.
 
 The raw archive and generated JSON are local build inputs and are excluded from Git. Before distributing either file or bundling the font, review the exact KFGQPC package terms for the intended use.
+
+
+## Current acquisition path (pinned mirror fallback)
+
+The official KFGQPC download host failed TLS name validation from GitHub Actions in the current environment. The importer therefore now downloads the KFGQPC Hafs v18 CSV from a **pinned commit** of the public `thetruetruth/quran-data-kfgqpc` mirror. It checks the exact byte length and Git blob SHA-1 before parsing, then validates all 6,236 ayahs and the expected count in each of the 114 surahs.
+
+This fallback is transparently identified in the generated dataset and in `data/source-manifest.json`. It is a mirror of KFGQPC data, not a direct official-host download. The source README identifies the data as KFGQPC Uthmanic Hafs v18, update 10.0, dated 2021-10-25. The mirrored data's own redistribution terms still need review before bundling or publishing the dataset or font.
