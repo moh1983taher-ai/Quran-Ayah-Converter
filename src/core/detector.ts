@@ -6,7 +6,7 @@ import type {
   QuranIndex
 } from "./types.js";
 import { mapNormalizedRange, normalizeArabicWithMap } from "./normalizer.js";
-import { findFuzzyTokenAlignments, prepareFuzzySource } from "./alignment.js";
+import { findFuzzyTokenAlignments, prepareFuzzySource, tokenizeArabic } from "./alignment.js";
 import { resolveAyahIdentity } from "./identity-resolver.js";
 
 export interface DetectorOptions {
@@ -264,6 +264,42 @@ export class QuranAyahDetector {
     const sourceNormalized = normalizeArabicWithMap(source);
     const normalizedText = sourceNormalized.value;
     if (!normalizedText) return undefined;
+
+    // Marked quotations can be exact contiguous excerpts from longer ayahs.
+    if (allowShort) {
+      const sourceTokens = tokenizeArabic(source);
+      if (sourceTokens.length >= 2) {
+        const sourceValues = sourceTokens.map(token => token.value);
+        const fragmentMatches: Array<{ record: QuranAyahRecord; start: number; end: number }> = [];
+        for (const record of records) {
+          const canonicalValues = tokenizeArabic(record.imlaei).map(token => token.value);
+          for (let offset = 0; offset <= canonicalValues.length - sourceValues.length; offset += 1) {
+            if (sourceValues.every((value, index) => canonicalValues[offset + index] === value)) {
+              fragmentMatches.push({
+                record,
+                start: sourceTokens[0]!.start,
+                end: sourceTokens[sourceTokens.length - 1]!.end
+              });
+              break;
+            }
+          }
+        }
+        // Never guess the identity of a short phrase repeated in multiple ayahs.
+        if (fragmentMatches.length === 1) {
+          const found = fragmentMatches[0]!;
+          return {
+            start: found.start,
+            end: found.end,
+            records: [found.record],
+            evidence: [{
+              type: "exact-text",
+              detail: "مقطع متصل مطابق لألفاظ آية قرآنية داخل الأقواس"
+            }],
+            confidence: 0.99
+          };
+        }
+      }
+    }
 
     let best: {
       start: number;
