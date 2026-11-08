@@ -11,7 +11,7 @@ describe("QuranAyahDetector with real KFGQPC Hafs v18 records", () => {
     const text = `قال تعالى ﴿${quote}﴾ ثم تابع الباحث كلامه.`;
     const match = detector.detect(text).find(item => item.references[0]?.surah === 1 && item.references[0]?.ayah === 1);
     expect(match).toBeDefined();
-    expect(text.slice(match!.sourceStart, match!.sourceEnd)).toBe(quote);
+    expect(text.slice(match!.sourceStart, match!.sourceEnd)).toBe(`﴿${quote}﴾`);
     expect(match?.canonicalText).toBe(kfgqpcHafsSamples[0]?.uthmani);
   });
 
