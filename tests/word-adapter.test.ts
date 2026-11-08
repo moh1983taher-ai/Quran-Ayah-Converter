@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   assertParagraphSnapshot,
-  createParagraphReplacementPlan
+  createParagraphReplacementPlan,
+  getWordRangeOffsets
 } from "../src/word/word-adapter.js";
 
 describe("Word paragraph replacement planning", () => {
@@ -63,5 +64,34 @@ describe("Word paragraph replacement planning", () => {
       .toThrow(/changed after review/);
     expect(() => assertParagraphSnapshot("النص الأصلي", "النص الأصلي"))
       .not.toThrow();
+  });
+});
+
+
+describe("Word absolute range coordinates", () => {
+  it("converts paragraph-relative Arabic offsets to absolute Word positions", () => {
+    const paragraph = "قبل ﴿آية قرآنية﴾ بعد";
+    const start = paragraph.indexOf("﴿");
+    const end = paragraph.indexOf("﴾") + 1;
+    expect(getWordRangeOffsets(120, 120 + paragraph.length, paragraph, start, end))
+      .toEqual({ start: 120 + start, end: 120 + end });
+  });
+
+  it("maps UTF-16 offsets when Word counts Unicode code points", () => {
+    const paragraph = "A😀ب";
+    expect(getWordRangeOffsets(50, 53, paragraph, 3, 4))
+      .toEqual({ start: 52, end: 53 });
+  });
+
+  it("rejects offsets when Word and JavaScript positions cannot be aligned", () => {
+    expect(() => getWordRangeOffsets(10, 15, "أبج", 0, 2))
+      .toThrow(/not aligned/);
+  });
+
+  it("rejects an empty or out-of-bounds source range", () => {
+    expect(() => getWordRangeOffsets(10, 13, "أبج", 2, 2))
+      .toThrow(/Invalid/);
+    expect(() => getWordRangeOffsets(10, 13, "أبج", 0, 4))
+      .toThrow(/Invalid/);
   });
 });
