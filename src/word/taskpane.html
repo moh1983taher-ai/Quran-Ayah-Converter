@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>محوّل الآيات القرآنية</title>
+  <link rel="stylesheet" href="taskpane.css">
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <script type="module" src="taskpane.js"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand-mark" aria-hidden="true"><span>۞</span></div>
+      <div class="brand-copy"><div class="eyebrow">أدوات النص القرآني</div><h1>محوّل الآيات</h1><p>من النص البحثي إلى الرسم العثماني</p></div>
+      <div class="edition"><i></i> رواية حفص</div>
+    </header>
+    <section class="hero">
+      <div class="hero-orbit orbit-one"></div><div class="hero-orbit orbit-two"></div>
+      <div class="hero-content"><span class="hero-kicker">مراجعة دقيقة · تحويل آمن</span>
+        <h2>اعتنِ بالنص،<br><em>واترك الآية لنا.</em></h2>
+        <p>اكتشف الاقتباسات القرآنية في مستندك، راجع مواضعها، ثم اعتمد تحويل ما تختاره فقط.</p>
+        <button id="scanButton" class="primary-button"><span>⌕</span> فحص المستند</button>
+      </div>
+      <div class="hero-seal" aria-hidden="true"><div class="seal-inner">﷽<small>رواية حفص</small></div></div>
+    </section>
+    <section class="status-strip">
+      <div class="status-dot" id="statusDot"></div><div><strong id="statusTitle">جاهز للفحص</strong><span id="statusText">افتح مستند Word ثم ابدأ الفحص</span></div>
+      <span class="status-tag" id="statusTag">جاهز</span>
+    </section>
+    <section class="section-heading"><div><span class="section-kicker">لوحة المراجعة</span><h2>الآيات المكتشفة <b id="resultCount">0</b></h2></div><button class="text-button" id="selectNone">إلغاء التحديد</button></section>
+    <section id="emptyState" class="empty-state"><div class="empty-icon">۞</div><strong>لم يبدأ الفحص بعد</strong><p>ستظهر هنا الآيات التي يعثر عليها المحرك، مع مواضعها ودرجة الثقة.</p></section>
+    <section id="results" class="results" aria-live="polite"></section>
+    <footer class="action-footer"><div class="footer-note"><span>◈</span><div><strong>أنت صاحب القرار</strong><small>لا يُعدّل المستند قبل موافقتك الصريحة.</small></div></div><button id="applyButton" class="apply-button" disabled>اعتماد المحدد <span>←</span></button></footer>
+    <div class="bottom-note">مبني على بيانات المصحف · لا اعتماد للحالات الملتبسة</div>
+  </main>
+  <div id="toast" class="toast" role="status"></div>
+</body>
+</html>
