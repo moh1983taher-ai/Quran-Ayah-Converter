@@ -25,6 +25,8 @@ interface Candidate {
   evidence: MatchEvidence[];
   confidence: number;
   status: AyahMatch["status"];
+  /** Exact canonical excerpt for a partial-ayah quotation. */
+  replacementText?: string;
 }
 
 interface ExplicitReference {
@@ -272,7 +274,7 @@ export class QuranAyahDetector {
       const sourceTokens = tokenizeArabic(source);
       if (sourceTokens.length >= 2) {
         const sourceValues = sourceTokens.map(token => token.value);
-        const fragmentMatches: Array<{ record: QuranAyahRecord; start: number; end: number }> = [];
+        const fragmentMatches: Array<{ record: QuranAyahRecord; start: number; end: number; replacementText: string }> = [];
         for (const record of records) {
           const canonicalValues = tokenizeArabic(record.imlaei).map(token => token.value);
           for (let offset = 0; offset <= canonicalValues.length - sourceValues.length; offset += 1) {
@@ -282,10 +284,20 @@ export class QuranAyahDetector {
             // longer excerpts can also match from the ayah's beginning.
             if (sourceValues.length < 4 && offset === 0) continue;
             if (sourceValues.every((value, index) => canonicalValues[offset + index] === value)) {
+              // Keep the exact matching word slice from the canonical Uthmani
+              // text. The full ayah identifies the source, but must never
+              // replace a shorter quotation in the user's document.
+              const uthmaniTokens = tokenizeArabic(record.uthmani);
+              const uthmaniSlice = uthmaniTokens.slice(offset, offset + sourceValues.length);
+              if (uthmaniSlice.length !== sourceValues.length) continue;
               fragmentMatches.push({
                 record,
                 start: sourceTokens[0]!.start,
-                end: sourceTokens[sourceTokens.length - 1]!.end
+                end: sourceTokens[sourceTokens.length - 1]!.end,
+                replacementText: record.uthmani.slice(
+                  uthmaniSlice[0]!.start,
+                  uthmaniSlice[uthmaniSlice.length - 1]!.end
+                )
               });
               break;
             }
@@ -298,6 +310,7 @@ export class QuranAyahDetector {
             start: found.start,
             end: found.end,
             records: [found.record],
+            replacementText: found.replacementText,
             evidence: [{
               type: "exact-text",
               detail: "مقطع متصل مطابق لألفاظ آية قرآنية داخل الأقواس"
@@ -509,7 +522,7 @@ export class QuranAyahDetector {
       matchedText: text.slice(item.candidate.start, item.candidate.end),
       canonicalText: item.ambiguous
         ? ""
-        : item.candidate.records.map(record => record.uthmani).join(" "),
+        : item.candidate.replacementText ?? item.candidate.records.map(record => record.uthmani).join(" "),
       confidence: item.confidence,
       evidence: item.evidence,
       status: item.ambiguous ? "ambiguous" :
