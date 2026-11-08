@@ -78,7 +78,13 @@ function renderResults(): void {
     top.className = "result-top";
     const ref = document.createElement("strong");
     ref.className = "ref-label";
-    ref.textContent = item.references.map(r => `${r.surah}:${r.ayah}`).join("، ");
+    const repeatedExcerpt = item.references.length > 1 &&
+      Boolean(item.replacementText) &&
+      item.evidence.some(e =>
+        e.type === "context" && e.detail.includes("المقتطف مكرر في المواضع المذكورة")
+      );
+    ref.textContent = item.references.map(r => `${r.surah}:${r.ayah}`).join("، ") +
+      (repeatedExcerpt ? " — مكرر في مواضع متعددة" : "");
     const score = document.createElement("span");
     score.className = "confidence";
     score.textContent = `الثقة ${Math.round(item.confidence * 100)}٪`;
@@ -109,9 +115,11 @@ function renderResults(): void {
       ? "تم تحويل هذا الموضع"
       : item.status === "ambiguous"
         ? "ملتبسة — غير قابلة للاعتماد"
-        : !hasWordRange
-          ? "أوافق على الآية (سيُتحقق من موضع الاستبدال عند التنفيذ)"
-          : "أوافق على تحويل هذا الموضع";
+        : repeatedExcerpt
+          ? "أوافق على تحويل المقتطف المكرر"
+          : !hasWordRange
+            ? "أوافق على الآية (سيُتحقق من موضع الاستبدال عند التنفيذ)"
+            : "أوافق على تحويل هذا الموضع";
     label.append(checkbox, document.createTextNode(labelText));
     card.append(top, original, canonical, evidence, label);
     root.append(card);
