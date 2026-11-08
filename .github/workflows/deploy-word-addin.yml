@@ -37,6 +37,11 @@ jobs:
           npm run typecheck
           npm test
 
+      - name: Import and validate the approved Hafs dataset
+        run: |
+          npm run import:kfgqpc
+          node --input-type=module -e 'import { readFileSync } from "node:fs"; const data = JSON.parse(readFileSync("data/quran-hafs.json", "utf8")); if (data.recordCount !== 6236 || data.records?.length !== 6236) throw new Error("Hafs dataset must contain exactly 6,236 ayahs"); console.log("Verified", data.recordCount, "Hafs ayahs");'
+
       - name: Build task pane bundle
         run: npm run build:taskpane
 
@@ -51,9 +56,15 @@ jobs:
           git ls-tree HEAD assets/icon-32.png assets/icon-80.png
           git show HEAD:assets/icon-32.png > site/assets/icon-32.png
           git show HEAD:assets/icon-80.png > site/assets/icon-80.png
-          if [ -f data/quran-hafs.json ]; then
-            cp data/quran-hafs.json site/data/quran-hafs.json
-          fi
+          test -s data/quran-hafs.json
+          cp data/quran-hafs.json site/data/quran-hafs.json
+          cat > site/data/NOTICE.txt <<'EOF'
+          Quran text dataset: Hafs narration, 6,236 ayahs.
+          Source dataset: KFGQPC Hafs data (v18 / update 10.0), retrieved from the pinned mirror:
+          https://github.com/thetruetruth/quran-data-kfgqpc
+          Source commit: 281dbbe8eed1370daa5a023b6cd81655cbfd6473
+          The dataset is included for the Quran Ayah Converter under the permission obtained for this project.
+          EOF
           touch site/.nojekyll
           cat > site/index.html <<'EOF'
           <!doctype html>
