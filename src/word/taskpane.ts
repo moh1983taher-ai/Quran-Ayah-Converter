@@ -97,7 +97,9 @@ function renderResults(): void {
     checkbox.type = "checkbox";
     checkbox.checked = item.decision === "approved" || item.decision === "applied";
     const hasWordRange = itemRanges.has(item.id);
-    checkbox.disabled = item.status === "ambiguous" || !item.replacementText || item.decision === "applied" || !hasWordRange;
+    // Approval is a review decision, not proof that Word can currently resolve
+    // the replacement range. Range validation remains mandatory at apply time.
+    checkbox.disabled = item.status === "ambiguous" || !item.replacementText || item.decision === "applied";
     checkbox.addEventListener("change", () => {
       reviewItems = setReviewDecision(reviewItems, [item.id], checkbox.checked ? "approved" : "rejected");
       updateApplyButton();
@@ -107,7 +109,7 @@ function renderResults(): void {
       : item.status === "ambiguous"
         ? "ملتبسة — غير قابلة للاعتماد"
         : !hasWordRange
-          ? "تعذر تثبيت موضع الآية في Word — غير قابلة للاعتماد"
+          ? "أوافق على الآية (سيُتحقق من موضع الاستبدال عند التنفيذ)"
           : "أوافق على تحويل هذا الموضع";
     label.append(checkbox, document.createTextNode(labelText));
     card.append(top, original, canonical, evidence, label);
@@ -284,16 +286,15 @@ async function applyApprovedReplacements(): Promise<void> {
   const approved = reviewItems.filter(item => item.decision === "approved");
   if (!approved.length) return;
 
-  const entries = approved.map(item => {
-    const stored = itemRanges.get(item.id);
-    if (!stored) throw new Error("موضع إحدى الآيات غير مثبت في Word؛ أُلغي الاستبدال.");
-    return { item, ...stored };
-  });
-
   const button = byId<HTMLButtonElement>("applyButton");
   button.disabled = true;
-  setStatus("جارٍ التحقق من المواضع المحفوظة", "التحقق من النطاقات نفسها التي ثُبّتت أثناء الفحص", "يتحقق");
+  setStatus("جارٍ التحقق من مواضع الاستبدال", "لن يتغير المستند ما لم تطابق النطاقات النصوص التي تمت مراجعتها", "يتحقق");
   try {
+    const entries = approved.map(item => {
+      const stored = itemRanges.get(item.id);
+      if (!stored) throw new Error("اعتمدت الآية للمراجعة، لكن تعذر تثبيت موضعها في Word. لم يتغير المستند؛ أعد فحص المستند ثم حاول مرة أخرى.");
+      return { item, ...stored };
+    });
     const trackedRanges = entries.map(entry => entry.range);
     await Word.run(trackedRanges, async context => {
       for (const entry of entries) entry.range.load("text");
