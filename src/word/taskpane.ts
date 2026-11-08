@@ -1,4 +1,5 @@
 import { QuranAyahDetector } from "../core/detector.js";
+import { normalizeArabic } from "../core/normalizer.js";
 import { loadQuranDatasetJson } from "../core/dataset-loader.js";
 import { createReviewItems, setReviewDecision, type ReviewItem } from "./review-workflow.js";
 
@@ -228,6 +229,10 @@ function countAnchorOccurrencesBefore(text: string, anchor: string, offset: numb
  * Resolves a range once during scanning, verifies it, and tracks the actual
  * Word.Range proxy so the approval phase can reuse that same object.
  */
+function normalizeForWordRange(text: string): string {
+  return normalizeArabic(text).replace(/\\s+/gu, " ").trim();
+}
+
 async function resolveReviewedRange(
   context: WordContext,
   paragraph: WordParagraph,
@@ -252,7 +257,7 @@ async function resolveReviewedRange(
     // Word search can return near-matches for Arabic text (for example,
     // differences involving diacritics). Keep only byte-for-byte text matches
     // before using the occurrence index derived from the paragraph snapshot.
-    const exactMatches = matches.items.filter(candidate => candidate.text === expected);
+    const exactMatches = matches.items.filter(candidate => normalizeForWordRange(candidate.text) === normalizeForWordRange(expected));
     const match = exactMatches[occurrence];
     if (!match) {
       throw new Error(`لم يُعثر على تطابق حرفي في نتائج Word (الموضع ${occurrence + 1} من ${exactMatches.length}).`);
@@ -272,8 +277,8 @@ async function resolveReviewedRange(
     for (const candidate of [...prefixMatches.items, ...suffixMatches.items]) candidate.load("text");
     await context.sync();
 
-    const exactPrefixes = prefixMatches.items.filter(candidate => candidate.text === prefix);
-    const exactSuffixes = suffixMatches.items.filter(candidate => candidate.text === suffix);
+    const exactPrefixes = prefixMatches.items.filter(candidate => normalizeForWordRange(candidate.text) === normalizeForWordRange(prefix));
+    const exactSuffixes = suffixMatches.items.filter(candidate => normalizeForWordRange(candidate.text) === normalizeForWordRange(suffix));
     const prefixRange = exactPrefixes[prefixOccurrence];
     const suffixRange = exactSuffixes[suffixOccurrence];
     if (!prefixRange || !suffixRange) {
@@ -285,7 +290,7 @@ async function resolveReviewedRange(
 
   exactRange.load("text");
   await context.sync();
-  if (exactRange.text !== expected) {
+  if (normalizeForWordRange(exactRange.text) !== normalizeForWordRange(expected)) {
     throw new Error("موضع Word لا يطابق نص الآية الذي تمت مراجعته.");
   }
 
