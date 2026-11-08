@@ -20,6 +20,6 @@ export function ensureOrnamentalVerseBrackets(text: string): string {
     }
   }
 
-  const separator = /\\p{M}$/u.test(verse) ? "\\u2009" : "";
-  return `﴿${verse}${separator}﴾`;
+  const separator = /\p{M}$/u.test(verse) ? "\u2009" : "";
+  return \`﴿\${verse}\${separator}﴾\`;
 }
