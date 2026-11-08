@@ -6,7 +6,7 @@ import type {
   QuranIndex
 } from "./types.js";
 import { mapNormalizedRange, normalizeArabicWithMap } from "./normalizer.js";
-import { findFuzzyTokenAlignments } from "./alignment.js";
+import { findFuzzyTokenAlignments, prepareFuzzySource } from "./alignment.js";
 
 export interface DetectorOptions {
   /** Minimum number of normalized Arabic letters in an unmarked quotation. */
@@ -226,6 +226,7 @@ export class QuranAyahDetector {
     allowShort: boolean
   ): Array<{ start: number; end: number; records: QuranAyahRecord[]; evidence: MatchEvidence[]; confidence: number }> {
     const matches: Array<{ start: number; end: number; records: QuranAyahRecord[]; evidence: MatchEvidence[]; confidence: number }> = [];
+    const preparedSource = prepareFuzzySource(source);
 
     for (const record of records) {
       const canonicalTokens = normalizeArabicWithMap(record.imlaei).value.split(/\\s+/u).filter(Boolean);
@@ -233,7 +234,7 @@ export class QuranAyahDetector {
       if (canonicalTokens.length < minimumTokens) continue;
 
       const maxDistance = canonicalTokens.length >= 9 ? 2 : 1;
-      const alignments = findFuzzyTokenAlignments(source, record.imlaei, {
+      const alignments = findFuzzyTokenAlignments(preparedSource, record.imlaei, {
         maxDistance,
         minimumTokens
       });
