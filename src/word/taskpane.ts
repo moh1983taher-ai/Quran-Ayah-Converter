@@ -165,7 +165,7 @@ async function applyApprovedReplacements(): Promise<void> {
         grouped.set(paragraphIndex, group);
       }
 
-      const pending: Array<{ step: ParagraphReplacementStep; range: WordRange }> = [];
+      const pending: Array<{ paragraphIndex: number; range: WordRange; resultingText: string }> = [];
       for (const [paragraphIndex, items] of grouped) {
         const paragraph = paragraphs.items[paragraphIndex];
         const snapshot = paragraphSnapshots.get(paragraphIndex);
@@ -173,9 +173,12 @@ async function applyApprovedReplacements(): Promise<void> {
           throw new Error("تغيرت بنية المستند منذ الفحص؛ أُلغي الاستبدال.");
         }
 
-        // Use short, unique anchors instead of unsupported Range.start/end.
-        // Each anchor is searched only within its paragraph; the combined
-        // range is then expanded and checked against the reviewed source text.
+        // Validate the whole paragraph snapshot, then prepare its final text
+        // locally. This deliberately avoids Word Range.start/end and expandTo.
+        const contentRange = paragraph.getRange("Content").load("text");
+        await context.sync();
+        assertParagraphSnapshot(contentRange.text, snapshot);
+
         const plan = createParagraphReplacementPlan(
           paragraphIndex,
           snapshot,
@@ -186,34 +189,27 @@ async function applyApprovedReplacements(): Promise<void> {
             replacementText: item.replacementText
           }))
         );
-
-        for (const step of plan.steps) {
-          const selected = step.expectedOriginalText;
-          const firstAnchor = selected.slice(0, 18);
-          const lastAnchor = selected.slice(-18);
-          if (!firstAnchor || !lastAnchor) throw new Error("تعذر إنشاء علامات تحديد آمنة.");
-
-          const firstMatches = paragraph.getRange("Content").search(firstAnchor, { matchCase: true, matchWholeWord: false }).load("items");
-          const lastMatches = paragraph.getRange("Content").search(lastAnchor, { matchCase: true, matchWholeWord: false }).load("items");
-          await context.sync();
-          if (firstMatches.items.length !== 1 || lastMatches.items.length !== 1) {
-            throw new Error(`علامات الآية غير فريدة في الفقرة ${paragraphIndex + 1}؛ أُلغي الاستبدال دون تعديل.`);
-          }
-          const target = firstMatches.items[0]!.expandTo(lastMatches.items[0]!).load("text");
-          await context.sync();
-          if (target.text !== step.expectedOriginalText) {
-            throw new Error(`النطاق المحدد لا يطابق النص الذي تمت مراجعته في الفقرة ${paragraphIndex + 1}؛ أُلغي الاستبدال دون تعديل.`);
-          }
-          pending.push({ step, range: target });
-        }
+        const resultingText = plan.steps.length
+          ? plan.steps[plan.steps.length - 1]!.resultingParagraphText
+          : snapshot;
+        pending.push({
+          paragraphIndex,
+          range: paragraph.getRange("Content"),
+          resultingText
+        });
       }
 
-      // All approved locations have passed preflight. Execute right-to-left
-      // within each paragraph so earlier offsets are not shifted.
+      // All paragraph snapshots and replacement plans passed preflight.
+      // Replace each paragraph's content in one operation; no range offsets,
+      // search anchors, or expandTo calls are used.
       for (const entry of pending) {
-        entry.range.insertText(entry.step.replacementText, "Replace");
+        entry.range.insertText(entry.resultingText, "Replace");
       }
       await context.sync();
+
+      for (const entry of pending) {
+        paragraphSnapshots.set(entry.paragraphIndex, entry.resultingText);
+      }
 
       for (const [paragraphIndex, items] of grouped) {
         const original = paragraphSnapshots.get(paragraphIndex)!;
