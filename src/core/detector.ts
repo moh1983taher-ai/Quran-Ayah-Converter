@@ -547,7 +547,7 @@ export class QuranAyahDetector {
 }
 
 function isBracketPadding(value: string): boolean {
-  return /^[\\s\\u0640\\u0610-\\u061A\\u064B-\\u065F\\u0670\\u06D6-\\u06ED]*$/u.test(value);
+  return /^[\s\u0640\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]*$/u.test(value);
 }
 
 function spansOverlap(a: Candidate, b: Candidate): boolean {
