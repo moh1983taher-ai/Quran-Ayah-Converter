@@ -11,7 +11,7 @@ describe("Arabic normalization", () => {
   });
 
   it("normalizes common alef variants and alef maksura", () => {
-    expect(normalizeArabic("إِلَىٰ أَنْ")).toBe("الى ان");
+    expect(normalizeArabic("إِلَىٰ أَنْ")).toBe("الي ان");
   });
 
   it("does not merge taa marbuta and haa", () => {
