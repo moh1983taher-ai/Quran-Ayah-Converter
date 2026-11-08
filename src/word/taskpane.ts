@@ -161,7 +161,7 @@ async function applyApprovedReplacements(): Promise<void> {
         const paragraphIndex = itemParagraphs.get(item.id);
         const paragraph = paragraphIndex === undefined ? undefined : paragraphs.items[paragraphIndex];
         const snapshot = paragraphIndex === undefined ? undefined : paragraphSnapshots.get(paragraphIndex);
-        if (!paragraph || snapshot === undefined) {
+        if (paragraphIndex === undefined || !paragraph || snapshot === undefined) {
           throw new Error("تعذر تحديد الفقرة الأصلية؛ أُلغي الاستبدال.");
         }
 
