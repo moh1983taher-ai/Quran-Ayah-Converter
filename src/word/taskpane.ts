@@ -188,10 +188,6 @@ async function applyApprovedReplacements(): Promise<void> {
         );
 
         for (const step of plan.steps) {
-          const before = snapshot.slice(Math.max(0, step.start - 12), step.start);
-          const selected = snapshot.slice(step.start, step.end);
-          const after = snapshot.slice(step.end, Math.min(snapshot.length, step.end + 12));
-          const startAnchor = (before + selected).slice(-24, -Math.min(selected.length, 0) || undefined);
           const firstAnchor = selected.slice(0, 18);
           const lastAnchor = selected.slice(-18);
           if (!firstAnchor || !lastAnchor) throw new Error("تعذر إنشاء علامات تحديد آمنة.");
