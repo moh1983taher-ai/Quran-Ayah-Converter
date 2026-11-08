@@ -124,6 +124,52 @@ export function createParagraphReplacementPlan(
 }
 
 /**
+ * Converts paragraph-relative JavaScript string offsets into Word's absolute
+ * character positions. Supports both UTF-16 and Unicode code-point indexing;
+ * rejects any coordinate system that cannot be mapped without ambiguity.
+ */
+export function getWordRangeOffsets(
+  paragraphStart: number,
+  paragraphEnd: number,
+  paragraphText: string,
+  sourceStart: number,
+  sourceEnd: number
+): { start: number; end: number } {
+  if (
+    !Number.isInteger(paragraphStart) ||
+    !Number.isInteger(paragraphEnd) ||
+    paragraphEnd < paragraphStart ||
+    !Number.isInteger(sourceStart) ||
+    !Number.isInteger(sourceEnd) ||
+    sourceStart < 0 ||
+    sourceEnd <= sourceStart ||
+    sourceEnd > paragraphText.length
+  ) {
+    throw new Error("Invalid paragraph or source offsets");
+  }
+
+  const wordLength = paragraphEnd - paragraphStart;
+  const utf16Length = paragraphText.length;
+  const codePoints = Array.from(paragraphText);
+  const codePointLength = codePoints.length;
+
+  const toWordOffset = (jsOffset: number): number => {
+    if (wordLength === utf16Length) return jsOffset;
+    if (wordLength === codePointLength) {
+      return Array.from(paragraphText.slice(0, jsOffset)).length;
+    }
+    throw new Error("Word and JavaScript paragraph offsets are not aligned");
+  };
+
+  const startOffset = toWordOffset(sourceStart);
+  const endOffset = toWordOffset(sourceEnd);
+  return {
+    start: paragraphStart + startOffset,
+    end: paragraphStart + endOffset
+  };
+}
+
+/**
  * A final guard for the Office.js layer. It must compare the live paragraph
  * text to expectedParagraphText before resolving the range and replacing it.
  */
