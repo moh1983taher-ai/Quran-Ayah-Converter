@@ -8,11 +8,13 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "import:kfgqpc": "node scripts/import-kfgqpc.mjs"
+    "import:kfgqpc": "node scripts/import-kfgqpc.mjs",
+    "build:taskpane": "esbuild src/word/taskpane.ts --bundle --format=esm --target=es2022 --outfile=src/word/taskpane.js"
   },
   "devDependencies": {
     "typescript": "^5.8.3",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "esbuild": "^0.25.5"
   },
   "dependencies": {
     "fflate": "^0.8.2"
