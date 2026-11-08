@@ -45,7 +45,7 @@ export function loadQuranDatasetJson(json: string): {
     typeof value.sourceCommit !== "string" ||
     !/^[a-f0-9]{40}$/i.test(value.sourceCommit) ||
     typeof value.sourceFile !== "string" ||
-    !/^[a-f0-9]{40}$/i.test(value.sourceGitBlobSha1) ||
+    !/^[a-f0-9]{40}$/i.test(value.sourceGitBlobSha1 ?? "") ||
     typeof value.importedAt !== "string" ||
     !Number.isFinite(Date.parse(value.importedAt ?? "")) ||
     !Array.isArray(value.records) ||
