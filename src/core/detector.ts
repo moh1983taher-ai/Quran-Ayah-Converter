@@ -408,10 +408,16 @@ export class QuranAyahDetector {
     }
 
     const resolved = clusters.map(cluster => {
-      const identityCandidates = cluster.map(candidate => ({
-        ...candidate,
-        identity: candidate.records.map(record => record.id).join("+")
-      }));
+      // Prefer the longest fully matched passage within an overlapping cluster.
+      // This allows consecutive ayahs to be recognized as one quotation while
+      // preserving ambiguity when equally long passages map to different identities.
+      const longestSpan = Math.max(...cluster.map(item => item.end - item.start));
+      const identityCandidates = cluster
+        .filter(candidate => candidate.end - candidate.start === longestSpan)
+        .map(candidate => ({
+          ...candidate,
+          identity: candidate.records.map(record => record.id).join("+")
+        }));
       const resolution = resolveAyahIdentity(identityCandidates, 0.065);
       const winner = resolution?.winner ?? identityCandidates[0]!;
       const competing = resolution?.competing ?? [];
