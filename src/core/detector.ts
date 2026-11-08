@@ -305,39 +305,50 @@ export class QuranAyahDetector {
         }> = [];
 
         for (const record of records) {
-          const canonicalTokens = tokenizeArabic(record.imlaei);
-          const canonicalValues = canonicalTokens.map(token => token.value);
-          for (let offset = 0; offset <= canonicalValues.length - sourceValues.length; offset += 1) {
-            // At the beginning of an ayah, very short generic openings are
-            // not identifying evidence. Permit a single distinctive word
-            // (e.g. "فأنشأنا") or a three-word opening ending in a distinctive
-            // token (e.g. "وما يستوي البحران"), but not "الله لا إله".
-            if (offset === 0 && sourceValues.length <= 3) {
-              const finalToken = sourceValues[sourceValues.length - 1] ?? "";
-              const distinctiveOpening =
-                (sourceValues.length === 1 && finalToken.length >= 5) ||
-                (sourceValues.length === 3 && finalToken.length >= 4);
-              if (!distinctiveOpening) continue;
-            }
-            if (!sourceValues.every((value, index) => canonicalValues[offset + index] === value)) continue;
+          const imlaeiTokens = tokenizeArabic(record.imlaei);
+          const uthmaniTokens = tokenizeArabic(record.uthmani);
+          // The Uthmani text is also searched directly. Some imported imlaei
+          // strings omit a conjunction or use a spelling that differs from
+          // the quotation, while the source Uthmani words remain exact.
+          const canonicalVariants = [imlaeiTokens, uthmaniTokens];
+          let matchedOffset: number | undefined;
 
-            // Keep the exact matching word slice from the canonical Uthmani
-            // text. The full ayah identifies the source, but must never replace
-            // a shorter quotation in the user's document.
-            const uthmaniTokens = tokenizeArabic(record.uthmani);
-            const uthmaniSlice = uthmaniTokens.slice(offset, offset + sourceValues.length);
-            if (uthmaniSlice.length !== sourceValues.length) continue;
-            fragmentMatches.push({
-              record,
-              start: sourceTokens[0]!.start,
-              end: sourceTokens[sourceTokens.length - 1]!.end,
-              replacementText: record.uthmani.slice(
-                uthmaniSlice[0]!.start,
-                uthmaniSlice[uthmaniSlice.length - 1]!.end
-              )
-            });
-            break;
+          for (const variant of canonicalVariants) {
+            const canonicalValues = variant.map(token => token.value);
+            for (let offset = 0; offset <= canonicalValues.length - sourceValues.length; offset += 1) {
+              // At the beginning of an ayah, very short generic openings are
+              // not identifying evidence. Permit a single distinctive word
+              // (e.g. "فأنشأنا") or a three-word opening ending in a distinctive
+              // token (e.g. "وما يستوي البحران"), but not "الله لا إله".
+              if (offset === 0 && sourceValues.length <= 3) {
+                const finalToken = sourceValues[sourceValues.length - 1] ?? "";
+                const distinctiveOpening =
+                  (sourceValues.length === 1 && finalToken.length >= 5) ||
+                  (sourceValues.length === 3 && finalToken.length >= 4);
+                if (!distinctiveOpening) continue;
+              }
+              if (!sourceValues.every((value, index) => canonicalValues[offset + index] === value)) continue;
+              matchedOffset = offset;
+              break;
+            }
+            if (matchedOffset !== undefined) break;
           }
+
+          if (matchedOffset === undefined) continue;
+          const uthmaniSlice = uthmaniTokens.slice(
+            matchedOffset,
+            matchedOffset + sourceValues.length
+          );
+          if (uthmaniSlice.length !== sourceValues.length) continue;
+          fragmentMatches.push({
+            record,
+            start: sourceTokens[0]!.start,
+            end: sourceTokens[sourceTokens.length - 1]!.end,
+            replacementText: record.uthmani.slice(
+              uthmaniSlice[0]!.start,
+              uthmaniSlice[uthmaniSlice.length - 1]!.end
+            )
+          });
         }
 
         if (fragmentMatches.length > 0) {
