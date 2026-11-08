@@ -2,6 +2,7 @@ import { QuranAyahDetector } from "../core/detector.js";
 import { normalizeArabic } from "../core/normalizer.js";
 import { loadQuranDatasetJson } from "../core/dataset-loader.js";
 import { createReviewItems, setReviewDecision, type ReviewItem } from "./review-workflow.js";
+import { ensureOrnamentalVerseBrackets } from "./verse-format.js";
 
 
 declare const Office: {
@@ -317,23 +318,6 @@ async function resolveReviewedRange(
   context.trackedObjects.add(exactRange);
   await context.sync();
   return { range: exactRange };
-}
-
-function ensureOrnamentalVerseBrackets(text: string): string {
-  // Strip one known outer delimiter pair, then enforce the canonical pair
-  // at the final Word write boundary (not only in the review model).
-  let verse = text.trim();
-  const pairs: ReadonlyArray<readonly [string, string]> = [
-    ["﴿", "﴾"],
-    ["", ""]
-  ];
-  for (const [left, right] of pairs) {
-    if (verse.startsWith(left) && verse.endsWith(right)) {
-      verse = verse.slice(left.length, verse.length - right.length);
-      break;
-    }
-  }
-  return `﴿${verse}﴾`;
 }
 
 async function applyApprovedReplacements(): Promise<void> {
