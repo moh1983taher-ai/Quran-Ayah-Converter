@@ -9,13 +9,11 @@ declare const Office: {
 };
 declare const Word: {
   run<T>(callback: (context: WordContext) => Promise<T>): Promise<T>;
-  run<T>(objects: Array<WordRange | WordCollection<WordRange>>, callback: (context: WordContext) => Promise<T>): Promise<T>;
+  run<T>(objects: WordRange[], callback: (context: WordContext) => Promise<T>): Promise<T>;
 };
 interface WordCollection<T> {
   items: T[];
   load(property: string): WordCollection<T>;
-  track(): WordCollection<T>;
-  untrack(): WordCollection<T>;
 }
 interface WordRange {
   text: string;
@@ -24,11 +22,9 @@ interface WordRange {
   expandTo(range: WordRange): WordRange;
   insertText(text: string, location: "Replace"): WordRange;
   search(query: string, options: { matchCase: boolean; matchWholeWord: boolean }): WordCollection<WordRange>;
-  track(): WordRange;
-  untrack(): WordRange;
 }
 interface WordParagraph { text: string; getRange(location?: "Content" | "Whole"): WordRange; }
-interface WordContext { document: { body: { paragraphs: WordCollection<WordParagraph>; tables: WordCollection<unknown>; } }; sync(): Promise<void>; }
+interface WordContext { document: { body: { paragraphs: WordCollection<WordParagraph>; tables: WordCollection<unknown>; } }; trackedObjects: { add(object: WordRange): void; remove(object: WordRange): void; }; sync(): Promise<void>; }
 
 const byId = <T extends HTMLElement>(id: string): T => {
   const element = document.getElementById(id);
@@ -42,7 +38,6 @@ interface StoredReviewedRange {
   start: number;
   end: number;
   expectedText: string;
-  parentCollections: WordCollection<WordRange>[];
 }
 const itemRanges = new Map<string, StoredReviewedRange>();
 let datasetPromise: Promise<ReturnType<typeof loadQuranDatasetJson>> | undefined;
@@ -122,13 +117,10 @@ function renderResults(): void {
 }
 async function releaseReviewedRanges(): Promise<void> {
   const entries = [...itemRanges.values()];
-  const trackedObjects = entries.flatMap(entry => [entry.range, ...entry.parentCollections]);
-  if (trackedObjects.length) {
-    await Word.run(trackedObjects, async context => {
-      for (const entry of entries) {
-        entry.range.untrack();
-        for (const collection of entry.parentCollections) collection.untrack();
-      }
+  const trackedRanges = entries.map(entry => entry.range);
+  if (trackedRanges.length) {
+    await Word.run(trackedRanges, async context => {
+      for (const entry of entries) context.trackedObjects.remove(entry.range);
       await context.sync();
     });
   }
@@ -178,7 +170,6 @@ async function inspectDocument(): Promise<void> {
             const resolved = await resolveReviewedRange(context, paragraph, paragraphText, start, end);
             itemRanges.set(item.id, {
               range: resolved.range,
-              parentCollections: resolved.parentCollections,
               paragraphIndex: index,
               start,
               end,
@@ -240,14 +231,13 @@ async function resolveReviewedRange(
   snapshot: string,
   start: number,
   end: number
-): Promise<{ range: WordRange; parentCollections: WordCollection<WordRange>[] }> {
+): Promise<{ range: WordRange }> {
   const expected = snapshot.slice(start, end);
   if (!expected) throw new Error("نطاق الآية فارغ؛ أُلغي تثبيت الموضع.");
 
   const content = paragraph.getRange("Content");
   const options = { matchCase: true, matchWholeWord: false };
   let exactRange: WordRange;
-  const parentCollections: WordCollection<WordRange>[] = [];
 
   if (expected.length <= 240) {
     const occurrence = countAnchorOccurrencesBefore(snapshot, expected, start);
@@ -256,7 +246,6 @@ async function resolveReviewedRange(
     const match = matches.items[occurrence];
     if (!match) throw new Error(`لم يُعثر على النص المطابق في مجموعة نتائج Word (الموضع ${occurrence + 1}).`);
     exactRange = match;
-    parentCollections.push(matches);
   } else {
     // Word Search is limited to 255 characters; search two real text segments.
     const chunkLength = Math.min(200, Math.floor(expected.length / 2));
@@ -271,7 +260,6 @@ async function resolveReviewedRange(
 
     const prefixRange = prefixMatches.items[prefixOccurrence];
     const suffixRange = suffixMatches.items[suffixOccurrence];
-    parentCollections.push(prefixMatches, suffixMatches);
     if (!prefixRange || !suffixRange) {
       throw new Error("تعذر تثبيت بداية الآية ونهايتها في Word.");
     }
@@ -285,12 +273,11 @@ async function resolveReviewedRange(
     throw new Error("موضع Word لا يطابق نص الآية الذي تمت مراجعته.");
   }
 
-  // Word requires the parent collection to be tracked along with any
-  // child range retained for a later Word.run batch.
-  for (const collection of parentCollections) collection.track();
-  exactRange.track();
+  // Persist the exact range through Office.js trackedObjects for the later
+  // approval/apply Word.run session. Collections used to discover it need not be tracked.
+  context.trackedObjects.add(exactRange);
   await context.sync();
-  return { range: exactRange, parentCollections };
+  return { range: exactRange };
 }
 
 async function applyApprovedReplacements(): Promise<void> {
@@ -307,8 +294,8 @@ async function applyApprovedReplacements(): Promise<void> {
   button.disabled = true;
   setStatus("جارٍ التحقق من المواضع المحفوظة", "التحقق من النطاقات نفسها التي ثُبّتت أثناء الفحص", "يتحقق");
   try {
-    const trackedObjects = entries.flatMap(entry => [entry.range, ...entry.parentCollections]);
-    await Word.run(trackedObjects, async context => {
+    const trackedRanges = entries.map(entry => entry.range);
+    await Word.run(trackedRanges, async context => {
       for (const entry of entries) entry.range.load("text");
       await context.sync();
 
@@ -338,8 +325,7 @@ async function applyApprovedReplacements(): Promise<void> {
       await context.sync();
 
       for (const entry of entries) {
-        entry.range.untrack();
-        for (const collection of entry.parentCollections) collection.untrack();
+        context.trackedObjects.remove(entry.range);
       }
       await context.sync();
     });
