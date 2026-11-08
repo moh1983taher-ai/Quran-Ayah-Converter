@@ -35,6 +35,10 @@ export class InMemoryQuranIndex implements QuranIndex {
     return this.records.get(referenceKey(reference));
   }
 
+  all(): readonly QuranAyahRecord[] {
+    return [...this.records.values()];
+  }
+
   search(normalizedQuery: string): QuranAyahRecord[] {
     return this.normalizedSearch.get(normalizedQuery) ?? [];
   }
