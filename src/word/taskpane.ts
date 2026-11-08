@@ -138,6 +138,66 @@ async function inspectDocument(): Promise<void> {
  * Replace only the reviewed verse range. The paragraph is read solely for
  * validation and occurrence disambiguation; it is never rewritten.
  */
+/**
+ * Resolve a long reviewed range through two short, independently located
+ * anchors. Word's Search API is used only for bounded anchors; the complete
+ * candidate range is then expanded geometrically and verified byte-for-byte
+ * against the immutable paragraph snapshot before any edit is queued.
+ */
+function countAnchorOccurrencesBefore(text: string, anchor: string, offset: number): number {
+  let count = 0;
+  let cursor = 0;
+  while (cursor < offset) {
+    const found = text.indexOf(anchor, cursor);
+    if (found < 0 || found >= offset) break;
+    count += 1;
+    cursor = found + anchor.length;
+  }
+  return count;
+}
+
+async function resolveReviewedRange(
+  context: WordContext,
+  paragraph: WordParagraph,
+  snapshot: string,
+  start: number,
+  end: number
+): Promise<WordRange> {
+  const expected = snapshot.slice(start, end);
+  if (!expected) throw new Error("نطاق الآية فارغ؛ أُلغي الاستبدال.");
+
+  // Keep each Word search safely short, even for exceptionally long verses.
+  const anchorLength = Math.min(12, Math.max(1, Math.floor(expected.length / 2)));
+  const prefix = expected.slice(0, anchorLength);
+  const suffix = expected.slice(expected.length - anchorLength);
+  const prefixOccurrence = countAnchorOccurrencesBefore(snapshot, prefix, start);
+  const suffixStart = end - anchorLength;
+  const suffixOccurrence = countAnchorOccurrencesBefore(snapshot, suffix, suffixStart);
+  const content = paragraph.getRange("Content");
+  const prefixMatches = content.search(prefix, {
+    matchCase: true,
+    matchWholeWord: false
+  }).load("items");
+  const suffixMatches = content.search(suffix, {
+    matchCase: true,
+    matchWholeWord: false
+  }).load("items");
+  await context.sync();
+
+  const prefixRange = prefixMatches.items[prefixOccurrence];
+  const suffixRange = suffixMatches.items[suffixOccurrence];
+  if (!prefixRange || !suffixRange) {
+    throw new Error("تعذر تثبيت علامتي بداية الآية ونهايتها؛ أُلغي الاستبدال.");
+  }
+
+  const exactRange = prefixRange.expandTo(suffixRange).load("text");
+  await context.sync();
+  if (exactRange.text !== expected) {
+    throw new Error("لم يتطابق النطاق الهندسي مع نص الآية الذي تمت مراجعته؛ أُلغي الاستبدال.");
+  }
+  return exactRange;
+}
+
 async function applyApprovedReplacements(): Promise<void> {
   const approved = reviewItems.filter(item => item.decision === "approved");
   if (!approved.length) return;
@@ -152,6 +212,7 @@ async function applyApprovedReplacements(): Promise<void> {
       const pending: Array<{
         paragraphIndex: number;
         start: number;
+        end: number;
         range: WordRange;
         replacementText: string;
       }> = [];
@@ -181,21 +242,14 @@ async function applyApprovedReplacements(): Promise<void> {
           throw new Error("لم يعد النص المحدد مطابقًا لما تمت مراجعته؛ أُلغي الاستبدال.");
         }
 
-        // Resolve repeated identical text by its occurrence ordinal in the
-        // immutable paragraph snapshot, then retain the exact Word range.
-        const occurrence = snapshot.slice(0, start).split(expected).length - 1;
-        const matches = paragraph.getRange("Content").search(expected, {
-          matchCase: true,
-          matchWholeWord: false
-        }).load("items");
-        await context.sync();
-        if (matches.items.length <= occurrence) {
-          throw new Error("تعذر العثور على نطاق الآية المطابق؛ أُلغي الاستبدال.");
-        }
+        // Resolve the long verse through two short anchors, then verify the
+        // complete expanded range against the reviewed snapshot.
+        const range = await resolveReviewedRange(context, paragraph, snapshot, start, end);
         pending.push({
           paragraphIndex,
           start,
-          range: matches.items[occurrence]!,
+          end,
+          range,
           replacementText: item.replacementText
         });
       }
@@ -208,8 +262,8 @@ async function applyApprovedReplacements(): Promise<void> {
         const previous = ordered[i - 1]!;
         const current = ordered[i]!;
         if (previous.paragraphIndex === current.paragraphIndex &&
-            previous.start === current.start) {
-          throw new Error("تكرر نطاق الاستبدال نفسه؛ أُلغي التنفيذ حمايةً للمستند.");
+            current.end > previous.start) {
+          throw new Error("تداخل نطاقا آيتين معتمدتين؛ أُلغي التنفيذ حمايةً للمستند.");
         }
       }
 
