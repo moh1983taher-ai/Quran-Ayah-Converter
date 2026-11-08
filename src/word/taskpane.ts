@@ -94,7 +94,7 @@ async function inspectDocument(): Promise<void> {
     datasetPromise ??= loadDataset();
     const loaded = await datasetPromise;
     await Word.run(async context => {
-      const paragraphs = context.document.body.paragraphs.load("items");
+      const paragraphs = context.document.body.paragraphs.load("items/text");
       const tables = context.document.body.tables.load("items");
       await context.sync();
       const detector = new QuranAyahDetector(loaded.index);
