@@ -6,7 +6,7 @@ import { assertParagraphSnapshot, createParagraphReplacementPlan, type Paragraph
 declare const Office: { onReady(callback: () => void): void };
 declare const Word: { run<T>(callback: (context: WordContext) => Promise<T>): Promise<T> };
 interface WordCollection<T> { items: T[]; load(property: string): WordCollection<T>; }
-interface WordRange { text: string; load(property: string): WordRange; expandTo(range: WordRange): WordRange; insertText(text: string, location: "Replace"): WordRange; search(query: string, options: { matchCase: boolean; matchWholeWord: boolean }): WordCollection<WordRange>; }
+interface WordRange { text: string; font: { name: string }; load(property: string): WordRange; expandTo(range: WordRange): WordRange; insertText(text: string, location: "Replace"): WordRange; search(query: string, options: { matchCase: boolean; matchWholeWord: boolean }): WordCollection<WordRange>; }
 interface WordParagraph { text: string; getRange(location?: "Content" | "Whole"): WordRange; }
 interface WordContext { document: { body: { paragraphs: WordCollection<WordParagraph>; tables: WordCollection<unknown>; } }; sync(): Promise<void>; }
 
@@ -207,27 +207,25 @@ async function applyApprovedReplacements(): Promise<void> {
       }
       await context.sync();
 
-      for (const entry of pending) {
-        paragraphSnapshots.set(entry.paragraphIndex, entry.resultingText);
-      }
-
+      // Apply the dedicated Hafs mushaf font to the canonical verse text only.
+      // The surrounding paragraph keeps Word's original formatting.
       for (const [paragraphIndex, items] of grouped) {
-        const original = paragraphSnapshots.get(paragraphIndex)!;
-        const plan = createParagraphReplacementPlan(
-          paragraphIndex,
-          original,
-          items.map(item => ({
-            start: item.sourceStart,
-            end: item.sourceEnd,
-            expectedOriginalText: item.originalText,
-            replacementText: item.replacementText
-          }))
-        );
-        const finalText = plan.steps.length
-          ? plan.steps[plan.steps.length - 1]!.resultingParagraphText
-          : original;
-        paragraphSnapshots.set(paragraphIndex, finalText);
+        const paragraph = paragraphs.items[paragraphIndex];
+        if (!paragraph) throw new Error("تعذر الوصول إلى الفقرة بعد الاستبدال.");
+        for (const item of items) {
+          const matches = paragraph.getRange("Content").search(item.replacementText, {
+            matchCase: true,
+            matchWholeWord: false
+          }).load("items");
+          await context.sync();
+          if (matches.items.length !== 1) {
+            throw new Error("تعذر تحديد الآية المحوّلة منفردة لتطبيق خط حفص؛ يرجى مراجعة الموضع.");
+          }
+          matches.items[0]!.font.name = "KFGQPC Uthmanic Script HAFS";
+        }
+        paragraphSnapshots.set(paragraphIndex, pending.find(entry => entry.paragraphIndex === paragraphIndex)!.resultingText);
       }
+      await context.sync();
     });
 
     reviewItems = reviewItems.map(item =>
