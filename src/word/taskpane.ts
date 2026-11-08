@@ -1,7 +1,7 @@
 import { QuranAyahDetector } from "../core/detector.js";
 import { loadQuranDatasetJson } from "../core/dataset-loader.js";
 import { createReviewItems, setReviewDecision, type ReviewItem } from "./review-workflow.js";
-import { assertParagraphSnapshot, createParagraphReplacementPlan, type ParagraphReplacementStep } from "./word-adapter.js";
+import { assertParagraphSnapshot } from "./word-adapter.js";
 
 declare const Office: { onReady(callback: () => void): void };
 declare const Word: { run<T>(callback: (context: WordContext) => Promise<T>): Promise<T> };
@@ -135,95 +135,88 @@ async function inspectDocument(): Promise<void> {
 }
 
 /**
- * Two-phase Word operation:
- * 1) Re-read paragraph snapshots and resolve every approved quotation to one
- *    exact Word range. No document edits occur during this preflight.
- * 2) Only after all ranges pass, replace them from right to left.
- *
- * Repeated identical quotations in one paragraph are rejected because
- * Office.js search alone cannot safely disambiguate their original offsets.
+ * Replace only the reviewed verse range. The paragraph is read solely for
+ * validation and occurrence disambiguation; it is never rewritten.
  */
 async function applyApprovedReplacements(): Promise<void> {
   const approved = reviewItems.filter(item => item.decision === "approved");
   if (!approved.length) return;
   const button = byId<HTMLButtonElement>("applyButton");
   button.disabled = true;
-  setStatus("جارٍ التحقق من مواضع الاستبدال", "إعادة مطابقة النصوص داخل مستند Word قبل أي تعديل", "يتحقق");
+  setStatus("جارٍ التحقق من مواضع الاستبدال", "مطابقة نطاق كل آية وأقواسها قبل أي تعديل", "يتحقق");
   try {
     await Word.run(async context => {
       const paragraphs = context.document.body.paragraphs.load("items");
       await context.sync();
 
-      const grouped = new Map<number, ReviewItem[]>();
+      const pending: Array<{
+        paragraphIndex: number;
+        start: number;
+        range: WordRange;
+        replacementText: string;
+      }> = [];
+
+      // Preflight every approved range before changing any text.
       for (const item of approved) {
         const paragraphIndex = itemParagraphs.get(item.id);
-        if (paragraphIndex === undefined || !paragraphSnapshots.has(paragraphIndex)) {
-          throw new Error("تعذر تحديد الفقرة الأصلية لإحدى النتائج؛ أُلغي الاستبدال.");
-        }
-        const group = grouped.get(paragraphIndex) ?? [];
-        group.push(item);
-        grouped.set(paragraphIndex, group);
-      }
-
-      const pending: Array<{ paragraphIndex: number; range: WordRange; resultingText: string }> = [];
-      for (const [paragraphIndex, items] of grouped) {
-        const paragraph = paragraphs.items[paragraphIndex];
-        const snapshot = paragraphSnapshots.get(paragraphIndex);
+        const paragraph = paragraphIndex === undefined ? undefined : paragraphs.items[paragraphIndex];
+        const snapshot = paragraphIndex === undefined ? undefined : paragraphSnapshots.get(paragraphIndex);
         if (!paragraph || snapshot === undefined) {
-          throw new Error("تغيرت بنية المستند منذ الفحص؛ أُلغي الاستبدال.");
+          throw new Error("تعذر تحديد الفقرة الأصلية؛ أُلغي الاستبدال.");
         }
 
-        // Validate the whole paragraph snapshot, then prepare its final text
-        // locally. This deliberately avoids Word Range.start/end and expandTo.
-        const contentRange = paragraph.getRange("Content").load("text");
+        const liveRange = paragraph.getRange("Content").load("text");
         await context.sync();
-        assertParagraphSnapshot(contentRange.text, snapshot);
+        assertParagraphSnapshot(liveRange.text, snapshot);
 
-        const plan = createParagraphReplacementPlan(
-          paragraphIndex,
-          snapshot,
-          items.map(item => ({
-            start: item.sourceStart,
-            end: item.sourceEnd,
-            expectedOriginalText: item.originalText,
-            replacementText: item.replacementText
-          }))
-        );
-        const resultingText = plan.steps.length
-          ? plan.steps[plan.steps.length - 1]!.resultingParagraphText
-          : snapshot;
+        let start = item.sourceStart;
+        let end = item.sourceEnd;
+        // Include ornamental Qur'anic brackets in the replacement range.
+        if (snapshot[start - 1] === "﴿" && snapshot[end] === "﴾") {
+          start -= 1;
+          end += 1;
+        }
+        const expected = snapshot.slice(start, end);
+        if (!expected || snapshot.slice(item.sourceStart, item.sourceEnd) !== item.originalText) {
+          throw new Error("لم يعد النص المحدد مطابقًا لما تمت مراجعته؛ أُلغي الاستبدال.");
+        }
+
+        // Resolve repeated identical text by its occurrence ordinal in the
+        // immutable paragraph snapshot, then retain the exact Word range.
+        const occurrence = snapshot.slice(0, start).split(expected).length - 1;
+        const matches = paragraph.getRange("Content").search(expected, {
+          matchCase: true,
+          matchWholeWord: false
+        }).load("items");
+        await context.sync();
+        if (matches.items.length <= occurrence) {
+          throw new Error("تعذر العثور على نطاق الآية المطابق؛ أُلغي الاستبدال.");
+        }
         pending.push({
           paragraphIndex,
-          range: paragraph.getRange("Content"),
-          resultingText
+          start,
+          range: matches.items[occurrence]!,
+          replacementText: item.replacementText
         });
       }
 
-      // All paragraph snapshots and replacement plans passed preflight.
-      // Replace each paragraph's content in one operation; no range offsets,
-      // search anchors, or expandTo calls are used.
-      for (const entry of pending) {
-        entry.range.insertText(entry.resultingText, "Replace");
-      }
-      await context.sync();
-
-      // Apply the dedicated Hafs mushaf font to the canonical verse text only.
-      // The surrounding paragraph keeps Word's original formatting.
-      for (const [paragraphIndex, items] of grouped) {
-        const paragraph = paragraphs.items[paragraphIndex];
-        if (!paragraph) throw new Error("تعذر الوصول إلى الفقرة بعد الاستبدال.");
-        for (const item of items) {
-          const matches = paragraph.getRange("Content").search(item.replacementText, {
-            matchCase: true,
-            matchWholeWord: false
-          }).load("items");
-          await context.sync();
-          if (matches.items.length !== 1) {
-            throw new Error("تعذر تحديد الآية المحوّلة منفردة لتطبيق خط حفص؛ يرجى مراجعة الموضع.");
-          }
-          matches.items[0]!.font.name = "KFGQPC Uthmanic Script HAFS";
+      // Refuse duplicate targets before making any change.
+      const ordered = [...pending].sort((a, b) =>
+        a.paragraphIndex - b.paragraphIndex || b.start - a.start
+      );
+      for (let i = 1; i < ordered.length; i += 1) {
+        const previous = ordered[i - 1]!;
+        const current = ordered[i]!;
+        if (previous.paragraphIndex === current.paragraphIndex &&
+            previous.start === current.start) {
+          throw new Error("تكرر نطاق الاستبدال نفسه؛ أُلغي التنفيذ حمايةً للمستند.");
         }
-        paragraphSnapshots.set(paragraphIndex, pending.find(entry => entry.paragraphIndex === paragraphIndex)!.resultingText);
+      }
+
+      // Replace only each exact verse range, never the paragraph.
+      for (const entry of ordered) {
+        const inserted = entry.range.insertText(entry.replacementText, "Replace");
+        inserted.font.name = "KFGQPC Uthmanic Script HAFS";
       }
       await context.sync();
     });
@@ -232,7 +225,7 @@ async function applyApprovedReplacements(): Promise<void> {
       item.decision === "approved" ? { ...item, decision: "applied" } : item
     );
     renderResults();
-    setStatus("اكتمل الاستبدال", `تم تحويل ${approved.length} موضعًا مع إعادة التحقق من النص الأصلي.`, "اكتمل");
+    setStatus("اكتمل الاستبدال", `تم تحويل ${approved.length} موضعًا دون إعادة كتابة الفقرات.`, "اكتمل");
     toast(`اكتمل تحويل ${approved.length} موضعًا معتمدًا.`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -242,7 +235,6 @@ async function applyApprovedReplacements(): Promise<void> {
     button.disabled = reviewItems.every(item => item.decision !== "approved");
   }
 }
-
 Office.onReady(() => {
   byId<HTMLButtonElement>("scanButton").addEventListener("click", () => void inspectDocument());
   byId<HTMLButtonElement>("selectNone").addEventListener("click", () => {
