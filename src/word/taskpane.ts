@@ -246,8 +246,17 @@ async function resolveReviewedRange(
     const occurrence = countAnchorOccurrencesBefore(snapshot, expected, start);
     const matches = content.search(expected, options).load("items");
     await context.sync();
-    const match = matches.items[occurrence];
-    if (!match) throw new Error(`لم يُعثر على النص المطابق في مجموعة نتائج Word (الموضع ${occurrence + 1}).`);
+    for (const candidate of matches.items) candidate.load("text");
+    await context.sync();
+
+    // Word search can return near-matches for Arabic text (for example,
+    // differences involving diacritics). Keep only byte-for-byte text matches
+    // before using the occurrence index derived from the paragraph snapshot.
+    const exactMatches = matches.items.filter(candidate => candidate.text === expected);
+    const match = exactMatches[occurrence];
+    if (!match) {
+      throw new Error(`لم يُعثر على تطابق حرفي في نتائج Word (الموضع ${occurrence + 1} من ${exactMatches.length}).`);
+    }
     exactRange = match;
   } else {
     // Word Search is limited to 255 characters; search two real text segments.
@@ -260,11 +269,15 @@ async function resolveReviewedRange(
     const prefixMatches = content.search(prefix, options).load("items");
     const suffixMatches = content.search(suffix, options).load("items");
     await context.sync();
+    for (const candidate of [...prefixMatches.items, ...suffixMatches.items]) candidate.load("text");
+    await context.sync();
 
-    const prefixRange = prefixMatches.items[prefixOccurrence];
-    const suffixRange = suffixMatches.items[suffixOccurrence];
+    const exactPrefixes = prefixMatches.items.filter(candidate => candidate.text === prefix);
+    const exactSuffixes = suffixMatches.items.filter(candidate => candidate.text === suffix);
+    const prefixRange = exactPrefixes[prefixOccurrence];
+    const suffixRange = exactSuffixes[suffixOccurrence];
     if (!prefixRange || !suffixRange) {
-      throw new Error("تعذر تثبيت بداية الآية ونهايتها في Word.");
+      throw new Error("تعذر تثبيت بداية الآية ونهايتها بتطابق حرفي في Word.");
     }
     exactRange = prefixRange.expandTo(suffixRange).load("text");
     await context.sync();
