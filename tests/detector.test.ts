@@ -98,12 +98,12 @@ describe("QuranAyahDetector", () => {
         item.references.some(reference => reference.surah === 16 && reference.ayah === ayah)
       );
       expect(match, quotation).toBeDefined();
-      expect(normalizeArabic(match!.canonicalText)).toBe(normalizeArabic(
-        quotation === "لكم منه شراب" ? "لَّكُم مِّنْهُ شَرَابٌ" :
+      const expectedExcerpt = quotation === "لكم منه شراب" ? "لَّكُم مِّنْهُ شَرَابٌ" :
         quotation === "ومنه شجر" ? "وَمِنْهُ شَجَرٌ" :
         quotation === "فيه تسيمون" ? "فِيهِ تُسِيمُونَ" :
-        "يُنبِتُ لَكُم بِهِ الزَّرْعَ وَالزَّيْتُونَ وَالنَّخِيلَ وَالْأَعْنَابَ وَمِن كُلِّ الثَّمَرَاتِ"
-      ));
+        "يُنبِتُ لَكُم بِهِ الزَّرْعَ وَالزَّيْتُونَ وَالنَّخِيلَ وَالْأَعْنَابَ وَمِن كُلِّ الثَّمَرَاتِ";
+      expect(normalizeArabic(match!.replacementText ?? match!.canonicalText)).toBe(normalizeArabic(expectedExcerpt));
+      expect(normalizeArabic(match!.canonicalText)).toBe(normalizeArabic(excerptRecords[ayah === 10 ? 0 : 1]!.uthmani));
     }
   });
 
