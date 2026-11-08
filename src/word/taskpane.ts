@@ -1,12 +1,15 @@
 import { QuranAyahDetector } from "../core/detector.js";
 import { loadQuranDatasetJson } from "../core/dataset-loader.js";
 import { createReviewItems, setReviewDecision, type ReviewItem } from "./review-workflow.js";
-import { assertParagraphSnapshot } from "./word-adapter.js";
+import { assertParagraphSnapshot, getWordRangeOffsets } from "./word-adapter.js";
 
-declare const Office: { onReady(callback: () => void): void };
+declare const Office: {
+  onReady(callback: () => void): void;
+  context: { requirements: { isSetSupported(name: string, version: string): boolean } };
+};
 declare const Word: { run<T>(callback: (context: WordContext) => Promise<T>): Promise<T> };
 interface WordCollection<T> { items: T[]; load(property: string): WordCollection<T>; }
-interface WordRange { text: string; font: { name: string }; load(property: string): WordRange; expandTo(range: WordRange): WordRange; insertText(text: string, location: "Replace"): WordRange; search(query: string, options: { matchCase: boolean; matchWholeWord: boolean }): WordCollection<WordRange>; }
+interface WordRange { text: string; start: number; end: number; font: { name: string }; load(property: string): WordRange; insertText(text: string, location: "Replace"): WordRange; }
 interface WordParagraph { text: string; getRange(location?: "Content" | "Whole"): WordRange; }
 interface WordContext { document: { body: { paragraphs: WordCollection<WordParagraph>; tables: WordCollection<unknown>; } }; sync(): Promise<void>; }
 
@@ -135,27 +138,9 @@ async function inspectDocument(): Promise<void> {
 }
 
 /**
- * Replace only the reviewed verse range. The paragraph is read solely for
- * validation and occurrence disambiguation; it is never rewritten.
+ * Build the exact reviewed range from Word's absolute character positions.
+ * No Search API, anchors, or paragraph reconstruction are used.
  */
-/**
- * Resolve a long reviewed range through two short, independently located
- * anchors. Word's Search API is used only for bounded anchors; the complete
- * candidate range is then expanded geometrically and verified byte-for-byte
- * against the immutable paragraph snapshot before any edit is queued.
- */
-function countAnchorOccurrencesBefore(text: string, anchor: string, offset: number): number {
-  let count = 0;
-  let cursor = 0;
-  while (cursor < offset) {
-    const found = text.indexOf(anchor, cursor);
-    if (found < 0 || found >= offset) break;
-    count += 1;
-    cursor = found + anchor.length;
-  }
-  return count;
-}
-
 async function resolveReviewedRange(
   context: WordContext,
   paragraph: WordParagraph,
@@ -166,41 +151,39 @@ async function resolveReviewedRange(
   const expected = snapshot.slice(start, end);
   if (!expected) throw new Error("نطاق الآية فارغ؛ أُلغي الاستبدال.");
 
-  // Keep each Word search safely short, even for exceptionally long verses.
-  const anchorLength = Math.min(12, Math.max(1, Math.floor(expected.length / 2)));
-  const prefix = expected.slice(0, anchorLength);
-  const suffix = expected.slice(expected.length - anchorLength);
-  const prefixOccurrence = countAnchorOccurrencesBefore(snapshot, prefix, start);
-  const suffixStart = end - anchorLength;
-  const suffixOccurrence = countAnchorOccurrencesBefore(snapshot, suffix, suffixStart);
-  const content = paragraph.getRange("Content");
-  const prefixMatches = content.search(prefix, {
-    matchCase: true,
-    matchWholeWord: false
-  }).load("items");
-  const suffixMatches = content.search(suffix, {
-    matchCase: true,
-    matchWholeWord: false
-  }).load("items");
+  const range = paragraph.getRange("Content").load("text,start,end");
   await context.sync();
+  assertParagraphSnapshot(range.text, snapshot);
 
-  const prefixRange = prefixMatches.items[prefixOccurrence];
-  const suffixRange = suffixMatches.items[suffixOccurrence];
-  if (!prefixRange || !suffixRange) {
-    throw new Error("تعذر تثبيت علامتي بداية الآية ونهايتها؛ أُلغي الاستبدال.");
+  let absoluteOffsets: { start: number; end: number };
+  try {
+    absoluteOffsets = getWordRangeOffsets(range.start, range.end, snapshot, start, end);
+  } catch {
+    throw new Error("تعذر مطابقة مواضع الأحرف في Word مع نص الفقرة؛ أُلغي الاستبدال حمايةً للمستند.");
   }
 
-  const exactRange = prefixRange.expandTo(suffixRange).load("text");
+  // Contract the end first, then move the start to the reviewed offset.
+  range.end = absoluteOffsets.end;
+  range.start = absoluteOffsets.start;
+  range.load("text");
   await context.sync();
-  if (exactRange.text !== expected) {
-    throw new Error("لم يتطابق النطاق الهندسي مع نص الآية الذي تمت مراجعته؛ أُلغي الاستبدال.");
+
+  if (range.text !== expected) {
+    throw new Error("النطاق المحدد بالإحداثيات لا يطابق نص الآية الذي تمت مراجعته؛ أُلغي الاستبدال.");
   }
-  return exactRange;
+  return range;
 }
 
 async function applyApprovedReplacements(): Promise<void> {
   const approved = reviewItems.filter(item => item.decision === "approved");
   if (!approved.length) return;
+
+  if (!Office.context.requirements.isSetSupported("WordApiDesktop", "1.4")) {
+    const message = "يتطلب الاستبدال الدقيق إصدار Word المكتبي الداعم لواجهة WordApiDesktop 1.4؛ لم يُجرَ أي تعديل على المستند.";
+    setStatus("ميزة تحديد النطاق غير مدعومة", message, "غير مدعوم");
+    toast(message);
+    return;
+  }
   const button = byId<HTMLButtonElement>("applyButton");
   button.disabled = true;
   setStatus("جارٍ التحقق من مواضع الاستبدال", "مطابقة نطاق كل آية وأقواسها قبل أي تعديل", "يتحقق");
@@ -226,10 +209,6 @@ async function applyApprovedReplacements(): Promise<void> {
           throw new Error("تعذر تحديد الفقرة الأصلية؛ أُلغي الاستبدال.");
         }
 
-        const liveRange = paragraph.getRange("Content").load("text");
-        await context.sync();
-        assertParagraphSnapshot(liveRange.text, snapshot);
-
         let start = item.sourceStart;
         let end = item.sourceEnd;
         // Include ornamental Qur'anic brackets in the replacement range.
@@ -242,8 +221,7 @@ async function applyApprovedReplacements(): Promise<void> {
           throw new Error("لم يعد النص المحدد مطابقًا لما تمت مراجعته؛ أُلغي الاستبدال.");
         }
 
-        // Resolve the long verse through two short anchors, then verify the
-        // complete expanded range against the reviewed snapshot.
+        // Resolve the reviewed offsets directly through Word.Range.start/end.
         const range = await resolveReviewedRange(context, paragraph, snapshot, start, end);
         pending.push({
           paragraphIndex,
