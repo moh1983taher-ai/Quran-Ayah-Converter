@@ -49,12 +49,12 @@ function validateRows(rows) {
   const seen = new Set();
   const counts = Array(114).fill(0);
   const records = rows.map((row, i) => {
-    const surah = Number(row.sora_no ?? row.sura_no);
+    const surah = Number(row.sora ?? row.sora_no ?? row.sura_no);
     const ayah = Number(row.aya_no);
     const id = String(row.id ?? `${surah}:${ayah}`);
     const uthmani = String(row.aya_text ?? row.aya_text_unicode ?? "").trim();
     const imlaei = String(row.aya_text_emlaey ?? "").trim();
-    const surahNameArabic = String(row.sora_name_ar ?? row.sura_name_ar ?? "").trim();
+    const surahNameArabic = String(row.sora_name_ar ?? row.sura_name_ar ?? row.sura_name_ar ?? "").trim();
     if (!Number.isInteger(surah) || surah < 1 || surah > 114) fail(`Invalid sura number at CSV row ${i + 2}`);
     if (!Number.isInteger(ayah) || ayah < 1) fail(`Invalid ayah number at CSV row ${i + 2}`);
     if (!surahNameArabic || !uthmani || !imlaei) fail(`Missing Arabic data at CSV row ${i + 2}`);
