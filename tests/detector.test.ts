@@ -45,6 +45,20 @@ describe("QuranAyahDetector", () => {
     expect(matches[0]?.evidence.some(item => item.type === "verse-brackets")).toBe(true);
   });
 
+  it("includes ornamental and legacy brackets when harmless padding surrounds a full ayah", () => {
+    const examples = [
+      "قال ﴿  بسم الله الرحمن الرحيم  ﴾",
+      "قال بسم الله الرحمن الرحيم"
+    ];
+    for (const text of examples) {
+      const matches = detector.detect(text);
+      expect(matches).toHaveLength(1);
+      expect(matches[0]?.matchedText).toBe(text.slice(text.indexOf(text.includes("") ? "" : "﴿")));
+      expect(text.slice(matches[0]!.sourceStart, matches[0]!.sourceEnd)).toBe(matches[0]?.matchedText);
+      expect(matches[0]?.references).toEqual([{ surah: 1, ayah: 1 }]);
+    }
+  });
+
   it("detects an unmarked exact quotation", () => {
     const text = "ومن ذلك قوله تعالى بسم الله الرحمن الرحيم في افتتاح السورة.";
     const matches = detector.detect(text);
