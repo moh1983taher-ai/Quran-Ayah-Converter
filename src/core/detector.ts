@@ -228,7 +228,9 @@ export class QuranAyahDetector {
 
     for (const record of records) {
       const canonicalTokens = normalizeArabicWithMap(record.imlaei).value.split(/\s+/u).filter(Boolean);
-      const minimumTokens = allowShort ? 3 : 5;
+      // Bracketed short fragments are handled by exact contiguous matching above.
+      // Fuzzy alignment needs at least four words to avoid generic false positives.
+      const minimumTokens = allowShort ? 4 : 5;
       if (canonicalTokens.length < minimumTokens) continue;
 
       const maxDistance = canonicalTokens.length >= 9 ? 2 : 1;
