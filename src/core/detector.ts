@@ -274,6 +274,11 @@ export class QuranAyahDetector {
         for (const record of records) {
           const canonicalValues = tokenizeArabic(record.imlaei).map(token => token.value);
           for (let offset = 0; offset <= canonicalValues.length - sourceValues.length; offset += 1) {
+            // Very short generic phrases at the beginning of an ayah are
+            // too weak to identify it safely (e.g. "الله لا إله").
+            // Short excerpts are accepted only when they occur inside the ayah;
+            // longer excerpts can also match from the ayah's beginning.
+            if (sourceValues.length < 4 && offset === 0) continue;
             if (sourceValues.every((value, index) => canonicalValues[offset + index] === value)) {
               fragmentMatches.push({
                 record,
