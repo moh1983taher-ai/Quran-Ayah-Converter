@@ -230,7 +230,7 @@ export class QuranAyahDetector {
     const preparedSource = prepareFuzzySource(source);
 
     for (const record of records) {
-      const canonicalTokens = normalizeArabicWithMap(record.imlaei).value.split(/\\s+/u).filter(Boolean);
+      const canonicalTokens = normalizeArabicWithMap(record.imlaei).value.split(/\s+/u).filter(Boolean);
       const minimumTokens = allowShort ? 3 : 5;
       if (canonicalTokens.length < minimumTokens) continue;
 
