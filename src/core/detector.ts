@@ -100,12 +100,14 @@ export class QuranAyahDetector {
       });
       if (!record) continue;
 
-      const quote = this.findNearbyQuote(text, reference.start, reference.end);
+      const nearbyQuote = this.findNearbyQuote(text, reference.start, reference.end);
+      const exactQuote = findCanonicalBefore(text, reference.start, record.imlaei);
+      const quote = exactQuote ?? nearbyQuote;
       if (!quote) continue;
 
       const quoteNormalized = normalizeArabicWithMap(text.slice(quote.start, quote.end));
       const canonical = normalizeArabicWithMap(record.imlaei).value;
-      const ratio = containmentRatio(quoteNormalized.value, canonical);
+      const ratio = exactQuote ? 1 : containmentRatio(quoteNormalized.value, canonical);
       if (ratio < 0.55) continue;
 
       candidates.push({
@@ -411,6 +413,21 @@ function findAll(text: string, needle: string): number[] {
     cursor = found + 1;
   }
   return positions;
+}
+
+function findCanonicalBefore(
+  text: string,
+  referenceStart: number,
+  canonicalText: string
+): { start: number; end: number } | undefined {
+  const windowStart = Math.max(0, referenceStart - 500);
+  const source = text.slice(windowStart, referenceStart);
+  const normalized = normalizeArabicWithMap(source);
+  const canonical = normalizeArabicWithMap(canonicalText).value;
+  const found = findBoundaryAware(normalized.value, canonical);
+  if (!found) return undefined;
+  const mapped = mapNormalizedRange(normalized, found.start, found.end);
+  return mapped ? { start: windowStart + mapped.start, end: windowStart + mapped.end } : undefined;
 }
 
 function containmentRatio(query: string, canonical: string): number {
