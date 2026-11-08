@@ -339,6 +339,8 @@ async function applyApprovedReplacements(): Promise<void> {
         inserted.font.name = "KFGQPC Uthmanic Script HAFS";
       }
       await context.sync();
+      for (const entry of resolvedEntries) context.trackedObjects.remove(entry.range);
+      await context.sync();
     });
 
     for (const item of approved) itemRanges.delete(item.id);
