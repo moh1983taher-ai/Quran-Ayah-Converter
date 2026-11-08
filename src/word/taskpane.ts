@@ -311,6 +311,23 @@ async function resolveReviewedRange(
   return { range: exactRange };
 }
 
+function ensureOrnamentalVerseBrackets(text: string): string {
+  // Strip one known outer delimiter pair, then enforce the canonical pair
+  // at the final Word write boundary (not only in the review model).
+  let verse = text.trim();
+  const pairs: ReadonlyArray<readonly [string, string]> = [
+    ["﴿", "﴾"],
+    ["", ""]
+  ];
+  for (const [left, right] of pairs) {
+    if (verse.startsWith(left) && verse.endsWith(right)) {
+      verse = verse.slice(left.length, verse.length - right.length);
+      break;
+    }
+  }
+  return `﴿${verse}﴾`;
+}
+
 async function applyApprovedReplacements(): Promise<void> {
   const approved = reviewItems.filter(item => item.decision === "approved");
   if (!approved.length) return;
@@ -363,7 +380,8 @@ async function applyApprovedReplacements(): Promise<void> {
       }
 
       for (const entry of ordered) {
-        const inserted = entry.range.insertText(entry.item.replacementText, "Replace");
+        const finalVerseText = ensureOrnamentalVerseBrackets(entry.item.replacementText);
+        const inserted = entry.range.insertText(finalVerseText, "Replace");
         inserted.font.name = "KFGQPC Uthmanic Script HAFS";
       }
       await context.sync();
