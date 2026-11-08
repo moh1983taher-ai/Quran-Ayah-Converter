@@ -136,12 +136,11 @@ describe("QuranAyahDetector", () => {
       expect(match, example.quote).toBeDefined();
       expect(text.slice(match!.sourceStart, match!.sourceEnd)).toBe(`﴿${example.quote}﴾`);
       if (example.ambiguous) {
-        expect(match?.status).toBe("ambiguous");
-        if (example.quote === "مِّن نَّخِيلٍ وَأَعْنَابٍ") {
-          expect(match?.references).toContainEqual({ surah: 36, ayah: 34 });
-        } else {
-          expect(match?.references).toContainEqual({ surah: 23, ayah: 21 });
-        }
+        const expectedCompetingReference = example.quote === "مِّن نَّخِيلٍ وَأَعْنَابٍ"
+          ? { surah: 36, ayah: 34 }
+          : { surah: 23, ayah: 21 };
+        expect(match?.references, example.quote).toContainEqual(expectedCompetingReference);
+        expect(match?.status, example.quote).toBe("ambiguous");
       } else {
         expect(match?.status).not.toBe("ambiguous");
         expect(match?.replacementText).toBeDefined();
