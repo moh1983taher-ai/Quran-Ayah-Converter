@@ -190,7 +190,6 @@ async function applyApprovedReplacements(): Promise<void> {
           }))
         );
 
-        const paragraphStart = contentRange.start;
         for (const step of plan.steps) {
           // Word.Range.start/end are absolute character positions in the
           // document story (WordApiDesktop 1.4). Convert the detector's
