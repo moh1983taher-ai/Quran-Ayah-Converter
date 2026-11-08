@@ -60,7 +60,7 @@ describe("Word review workflow", () => {
     const replacements = buildApprovedReplacements(approved);
     expect(replacements).toHaveLength(1);
     expect(replacements[0]?.replacementText).toBe("نَصٌّ قُرْآنِيٌّ");
-    expect(replacements[0]?.location.references).toEqual([
+    expect((replacements[0]?.location as { references: Array<{ surah: number; ayah: number }> }).references).toEqual([
       { surah: 23, ayah: 19 },
       { surah: 36, ayah: 34 }
     ]);
