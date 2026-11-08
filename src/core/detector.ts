@@ -141,6 +141,7 @@ export class QuranAyahDetector {
             start: contentStart + match.start,
             end: contentStart + match.end,
             records: match.records,
+            replacementText: match.replacementText,
             evidence: [
               { type: "verse-brackets", detail: open + "..." + close },
               ...match.evidence
