@@ -1,7 +1,7 @@
 import type { AyahMatch, AyahReference } from "../core/types.js";
 import type { WordReplacement } from "./word-adapter.js";
 
-export type ReviewDecision = "pending" | "approved" | "rejected";
+export type ReviewDecision = "pending" | "approved" | "rejected" | "applied";
 
 export interface ReviewItem {
   id: string;
@@ -51,7 +51,7 @@ export function createReviewItems(
 export function setReviewDecision(
   items: readonly ReviewItem[],
   ids: readonly string[],
-  decision: Exclude<ReviewDecision, "pending">
+  decision: "approved" | "rejected"
 ): ReviewItem[] {
   const selected = new Set(ids);
   return items.map(item => {
