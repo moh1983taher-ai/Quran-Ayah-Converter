@@ -312,7 +312,7 @@ export class QuranAyahDetector {
           // alignment. This preserves exact word boundaries and handles cases
           // where the imported imlaei tokenization differs from the source.
           const uthmaniNormalized = normalizeArabicWithMap(record.uthmani);
-          const exactUthmani = findBoundaryAware(
+          const exactUthmani = findBoundaryAwareWithConjunctionPrefix(
             uthmaniNormalized.value,
             sourceValues.join(" ")
           );
@@ -735,6 +735,30 @@ function uniqueReferences(records: readonly QuranAyahRecord[]): AyahReference[] 
     }
   }
   return references;
+}
+
+function findBoundaryAwareWithConjunctionPrefix(
+  haystack: string,
+  needle: string
+): { start: number; end: number; exact: boolean } | undefined {
+  if (!needle) return undefined;
+  let index = haystack.indexOf(needle);
+  while (index >= 0) {
+    const before = index === 0 ? "" : haystack[index - 1]!;
+    const after = index + needle.length >= haystack.length ? "" : haystack[index + needle.length]!;
+    const ordinaryBoundary = !isArabicLetterOrDigit(before);
+    const attachedConjunction =
+      (before === "و" || before === "ف") &&
+      (index === 1 || !isArabicLetterOrDigit(haystack[index - 2]!));
+
+    if ((ordinaryBoundary || attachedConjunction) && !isArabicLetterOrDigit(after)) {
+      // Start at the quoted word, not at its attached conjunction. This keeps
+      // replacement limited to the words actually present in the document.
+      return { start: index, end: index + needle.length, exact: true };
+    }
+    index = haystack.indexOf(needle, index + 1);
+  }
+  return undefined;
 }
 
 function findBoundaryAware(
