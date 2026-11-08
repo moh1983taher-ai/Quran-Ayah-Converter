@@ -79,6 +79,15 @@ describe("QuranAyahDetector", () => {
     expect(matches.some(item => item.references[0]?.ayah === 2)).toBe(true);
   });
 
+  it("detects a Qur'anic bracketed verse containing an Allah presentation ligature", () => {
+    const text = "قال تعالى ﴿ﷲ لا اله الا هو الحي القيوم﴾";
+    const match = detector.detect(text).find(item =>
+      item.references.some(reference => reference.surah === 2 && reference.ayah === 255)
+    );
+    expect(match).toBeDefined();
+    expect(text.slice(match!.sourceStart, match!.sourceEnd)).toBe("﴿ﷲ لا اله الا هو الحي القيوم﴾");
+  });
+
   it("detects exact contiguous excerpts inside longer bracketed ayahs", () => {
     const excerptRecords: QuranAyahRecord[] = [
       {
@@ -119,6 +128,32 @@ describe("QuranAyahDetector", () => {
       expect(normalizeArabic(match!.replacementText ?? match!.canonicalText)).toBe(normalizeArabic(expectedExcerpt));
       expect(normalizeArabic(match!.canonicalText)).toBe(normalizeArabic(excerptRecords[ayah === 10 ? 0 : 1]!.uthmani));
     }
+  });
+
+  it("detects a near-exact bracketed excerpt within a longer ayah and keeps it for review", () => {
+    const excerptRecords: QuranAyahRecord[] = [
+      {
+        id: "16:10",
+        surah: 16,
+        ayah: 10,
+        surahNameArabic: "النحل",
+        uthmani: "هُوَ الَّذِي أَنزَلَ مِنَ السَّمَاءِ مَاءً لَّكُم مِّنْهُ شَرَابٌ وَمِنْهُ شَجَرٌ فِيهِ تُسِيمُونَ",
+        imlaei: "هو الذي أنزل من السماء ماء لكم منه شراب ومنه شجر فيه تسيمون"
+      }
+    ];
+    const excerptDetector = new QuranAyahDetector(new InMemoryQuranIndex(excerptRecords));
+    const text = "شرح ﴿هو الذي أنزل السماء ماء لكم منه شراب﴾ ثم متابعة";
+    const match = excerptDetector.detect(text).find(item =>
+      item.references.some(reference => reference.surah === 16 && reference.ayah === 10)
+    );
+
+    expect(match).toBeDefined();
+    expect(match?.status).toBe("needs-review");
+    expect(match?.evidence.some(item => item.type === "fuzzy-alignment")).toBe(true);
+    expect(text.slice(match!.sourceStart, match!.sourceEnd)).toBe("﴿هو الذي أنزل السماء ماء لكم منه شراب﴾");
+    expect(normalizeArabic(match!.replacementText ?? "")).toBe(
+      normalizeArabic("هُوَ الَّذِي أَنزَلَ مِنَ السَّمَاءِ مَاءً لَّكُم مِّنْهُ شَرَابٌ")
+    );
   });
 
   it("does not guess the identity of a repeated short bracketed excerpt", () => {
