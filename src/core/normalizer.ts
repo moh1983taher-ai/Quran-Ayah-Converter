@@ -1,7 +1,8 @@
 import type { NormalizedText } from "./types.js";
 
 const TATWEEL = "\u0640";
-const ARABIC_DIACRITICS = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]/u;
+const ARABIC_DIACRITICS = /[\p{M}\u06D6-\u06ED]/u;
+const FORMAT_CONTROLS = /\p{Cf}/u;
 const ALEF_VARIANTS: Record<string, string> = {
   "أ": "ا",
   "إ": "ا",
@@ -27,17 +28,26 @@ export function normalizeArabicWithMap(input: string): NormalizedText {
     const start = offset;
     offset += character.length;
 
-    if (character === TATWEEL || ARABIC_DIACRITICS.test(character)) {
-      continue;
-    }
+    // Compatibility normalization handles Arabic presentation forms and
+    // Qur'anic ligatures copied from PDFs/Word. Every expanded character maps
+    // back to the original source code point so replacement offsets stay exact.
+    for (const compatibleCharacter of character.normalize("NFKC")) {
+      if (
+        compatibleCharacter === TATWEEL ||
+        ARABIC_DIACRITICS.test(compatibleCharacter) ||
+        FORMAT_CONTROLS.test(compatibleCharacter)
+      ) {
+        continue;
+      }
 
-    const normalized = ALEF_VARIANTS[character]
-      ?? (character === "ى" ? "ي" : character);
+      const normalized = ALEF_VARIANTS[compatibleCharacter]
+        ?? (compatibleCharacter === "ى" ? "ي" : compatibleCharacter);
 
-    value += normalized;
-    for (let i = 0; i < normalized.length; i += 1) {
-      sourceStart.push(start);
-      sourceEnd.push(offset);
+      value += normalized;
+      for (let i = 0; i < normalized.length; i += 1) {
+        sourceStart.push(start);
+        sourceEnd.push(offset);
+      }
     }
   }
 
