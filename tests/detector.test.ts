@@ -93,9 +93,16 @@ describe("QuranAyahDetector", () => {
 
     for (const [quotation, ayah] of quotations) {
       const matches = excerptDetector.detect(`شرح ﴿${quotation}﴾ ثم متابعة`);
-      expect(matches.some(item =>
+      const match = matches.find(item =>
         item.references.some(reference => reference.surah === 16 && reference.ayah === ayah)
-      ), quotation).toBe(true);
+      );
+      expect(match, quotation).toBeDefined();
+      expect(normalizeArabicForTest(match!.canonicalText)).toBe(normalizeArabicForTest(
+        quotation === "لكم منه شراب" ? "لَّكُم مِّنْهُ شَرَابٌ" :
+        quotation === "ومنه شجر" ? "وَمِنْهُ شَجَرٌ" :
+        quotation === "فيه تسيمون" ? "فِيهِ تُسِيمُونَ" :
+        "يُنبِتُ لَكُم بِهِ الزَّرْعَ وَالزَّيْتُونَ وَالنَّخِيلَ وَالْأَعْنَابَ وَمِن كُلِّ الثَّمَرَاتِ"
+      ));
     }
   });
 
