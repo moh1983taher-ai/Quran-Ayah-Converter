@@ -117,10 +117,10 @@ describe("QuranAyahDetector", () => {
       }
     ];
     const contextDetector = new QuranAyahDetector(new InMemoryQuranIndex(contextRecords));
-    const examples: Array<{ quote: string; surah: number; ayah: number; ambiguous?: boolean }> = [
+    const examples: Array<{ quote: string; surah: number; ayah: number; ambiguous?: boolean; repeated?: boolean }> = [
       { quote: "وَمَا يَسْتَوِي الْبَحْرَانِ", surah: 35, ayah: 12 },
-      { quote: "مِّن نَّخِيلٍ وَأَعْنَابٍ", surah: 23, ayah: 19, ambiguous: true },
-      { quote: "وَمِنْهَا تَأْكُلُونَ", surah: 23, ayah: 19, ambiguous: true },
+      { quote: "مِّن نَّخِيلٍ وَأَعْنَابٍ", surah: 23, ayah: 19, repeated: true },
+      { quote: "وَمِنْهَا تَأْكُلُونَ", surah: 23, ayah: 19, repeated: true },
       { quote: "فَأَنشَأْنَا", surah: 23, ayah: 19 },
       { quote: "لَّكُمْ فِيهَا", surah: 23, ayah: 19, ambiguous: true },
       { quote: "فَاسْلُكِي سُبُلَ رَبِّكِ ذُلُلً", surah: 16, ayah: 69 }
@@ -136,11 +136,16 @@ describe("QuranAyahDetector", () => {
       expect(match, example.quote).toBeDefined();
       expect(text.slice(match!.sourceStart, match!.sourceEnd)).toBe(`﴿${example.quote}﴾`);
       if (example.ambiguous) {
-        const expectedCompetingReference = example.quote === "مِّن نَّخِيلٍ وَأَعْنَابٍ"
-          ? { surah: 36, ayah: 34 }
-          : { surah: 23, ayah: 21 };
-        expect(match?.references, example.quote).toContainEqual(expectedCompetingReference);
-        expect(match?.status, example.quote).toBe("ambiguous");
+        expect(match?.references).toContainEqual({ surah: 23, ayah: 21 });
+        expect(match?.status).toBe("ambiguous");
+        expect(match?.replacementText).toBeUndefined();
+      } else if (example.repeated) {
+        expect(match?.references.length).toBeGreaterThan(1);
+        expect(match?.status).toBe("high-confidence");
+        expect(match?.replacementText).toBeDefined();
+        expect(match?.evidence.some(item =>
+          item.type === "context" && item.detail.includes("الرسم العثماني متطابق")
+        )).toBe(true);
       } else {
         expect(match?.status).not.toBe("ambiguous");
         expect(match?.replacementText).toBeDefined();
@@ -245,12 +250,15 @@ describe("QuranAyahDetector", () => {
     const repeatedDetector = new QuranAyahDetector(new InMemoryQuranIndex(repeatedRecords));
     const matches = repeatedDetector.detect("قال ﴿عليم حكيم﴾");
     expect(matches).toHaveLength(1);
-    expect(matches[0]?.status).toBe("ambiguous");
+    expect(matches[0]?.status).toBe("high-confidence");
     expect(matches[0]?.references).toEqual([
       { surah: 2, ayah: 1 },
       { surah: 3, ayah: 1 }
     ]);
-    expect(matches[0]?.canonicalText).toBe("");
+    expect(normalizeArabic(matches[0]?.replacementText ?? "")).toBe(normalizeArabic("عَلِيمٌ حَكِيمٌ"));
+    expect(matches[0]?.evidence.some(item =>
+      item.type === "context" && item.detail.includes("الرسم العثماني متطابق")
+    )).toBe(true);
   });
 
   it("detects a bracketed ayah when one word is omitted and requests review", () => {
