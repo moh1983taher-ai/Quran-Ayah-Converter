@@ -137,9 +137,14 @@ export class QuranAyahDetector {
         const content = text.slice(contentStart, contentEnd);
         const match = this.matchPassage(content, records, true);
         if (match) {
+          // When the matched quotation occupies the complete bracket content,
+          // include the existing ornamental delimiters in the replacement range.
+          // Word can then replace the pair and the excerpt together, avoiding
+          // duplicated brackets while leaving surrounding prose untouched.
+          const coversBracketContent = match.start === 0 && match.end === content.length;
           candidates.push({
-            start: contentStart + match.start,
-            end: contentStart + match.end,
+            start: coversBracketContent ? start : contentStart + match.start,
+            end: coversBracketContent ? endMarker + close.length : contentStart + match.end,
             records: match.records,
             ...(match.replacementText !== undefined ? { replacementText: match.replacementText } : {}),
             evidence: [
