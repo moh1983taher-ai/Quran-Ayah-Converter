@@ -12,6 +12,8 @@ export interface QuranAyahRecord extends AyahReference {
   imlaei: string;
   juz?: number;
   page?: number;
+  lineStart?: number;
+  lineEnd?: number;
 }
 
 /** A normalized string plus a map back to UTF-16 offsets in the source. */
