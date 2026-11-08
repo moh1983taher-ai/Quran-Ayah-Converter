@@ -79,6 +79,36 @@ describe("QuranAyahDetector", () => {
     expect(matches).toHaveLength(0);
   });
 
+  it("marks identical text from different ayahs as ambiguous", () => {
+    const duplicateRecords: QuranAyahRecord[] = [
+      {
+        id: "2:10",
+        surah: 2,
+        ayah: 10,
+        surahNameArabic: "البقرة",
+        uthmani: "وَاللَّهُ عَلِيمٌ حَكِيمٌ",
+        imlaei: "والله عليم حكيم"
+      },
+      {
+        id: "3:20",
+        surah: 3,
+        ayah: 20,
+        surahNameArabic: "آل عمران",
+        uthmani: "وَاللَّهُ عَلِيمٌ حَكِيمٌ",
+        imlaei: "والله عليم حكيم"
+      }
+    ];
+    const duplicateDetector = new QuranAyahDetector(new InMemoryQuranIndex(duplicateRecords));
+    const matches = duplicateDetector.detect("ومن ذلك قوله: والله عليم حكيم.");
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.status).toBe("ambiguous");
+    expect(matches[0]?.references).toEqual([
+      { surah: 2, ayah: 10 },
+      { surah: 3, ayah: 20 }
+    ]);
+    expect(matches[0]?.canonicalText).toBe("");
+  });
+
   it("does not create a match for unrelated text", () => {
     expect(detector.detect("هذا نص عربي عادي لا يتضمن اقتباسا قرآنيا.")).toHaveLength(0);
   });
