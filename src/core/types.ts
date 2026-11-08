@@ -29,7 +29,10 @@ export interface AyahMatch {
   sourceEnd: number;
   references: AyahReference[];
   matchedText: string;
+  /** Full canonical ayah text used to establish Qur'anic identity. */
   canonicalText: string;
+  /** Exact canonical text to insert; set for partial-ayah excerpts only. */
+  replacementText?: string;
   confidence: number;
   evidence: MatchEvidence[];
   status: "high-confidence" | "needs-review" | "ambiguous";
