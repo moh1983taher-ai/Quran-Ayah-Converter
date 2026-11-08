@@ -6,7 +6,7 @@ import { assertParagraphSnapshot, createParagraphReplacementPlan, type Paragraph
 declare const Office: { onReady(callback: () => void): void };
 declare const Word: { run<T>(callback: (context: WordContext) => Promise<T>): Promise<T> };
 interface WordCollection<T> { items: T[]; load(property: string): WordCollection<T>; }
-interface WordRange { text: string; load(property: string): WordRange; search(query: string, options: { matchCase: boolean; matchWholeWord: boolean }): WordSearchCollection; insertText(text: string, location: "Replace"): WordRange; }
+interface WordRange { text: string; load(property: string): WordRange; search(query: string, options: { matchCase: boolean; matchWholeWord: boolean }): WordSearchCollection; expandTo(range: WordRange): WordRange; insertText(text: string, location: "Replace"): WordRange; }
 interface WordSearchCollection { items: WordRange[]; load(property: string): WordSearchCollection; }
 interface WordParagraph { text: string; getRange(): WordRange; }
 interface WordContext { document: { body: { paragraphs: WordCollection<WordParagraph>; tables: WordCollection<unknown>; } }; sync(): Promise<void>; }
@@ -183,20 +183,58 @@ async function applyApprovedReplacements(): Promise<void> {
         );
 
         for (const step of plan.steps) {
-          const matches = paragraph.getRange().search(step.expectedOriginalText, {
-            matchCase: true,
-            matchWholeWord: false
-          }).load("items");
-          await context.sync();
-          if (matches.items.length !== 1) {
-            throw new Error(
-              `تعذر تحديد موضع فريد للنص في الفقرة ${paragraphIndex + 1}. لم يُنفذ الاستبدال.`
-            );
+          const source = step.expectedOriginalText;
+          let range: WordRange;
+
+          // Word's Search API rejects long search strings. Resolve long
+          // quotations through two short, unique anchors, then expand the
+          // range between them and verify the complete original quotation.
+          if (source.length <= 200) {
+            const matches = paragraph.getRange().search(source, {
+              matchCase: true,
+              matchWholeWord: false
+            }).load("items");
+            await context.sync();
+            if (matches.items.length !== 1) {
+              throw new Error(
+                `تعذر تحديد موضع فريد للنص في الفقرة ${paragraphIndex + 1}. لم يُنفذ الاستبدال.`
+              );
+            }
+            range = matches.items[0]!;
+          } else {
+            const anchorLength = 100;
+            const prefix = source.slice(0, anchorLength);
+            const suffix = source.slice(-anchorLength);
+            const expectedStart = step.start;
+            const expectedSuffixStart = step.end - anchorLength;
+            if (
+              snapshot.indexOf(prefix) !== expectedStart ||
+              snapshot.indexOf(suffix) !== expectedSuffixStart ||
+              prefix === suffix
+            ) {
+              throw new Error("تعذر بناء علامتي تحقق فريدتين للنص الطويل؛ أُلغي الاستبدال.");
+            }
+
+            const prefixMatches = paragraph.getRange().search(prefix, {
+              matchCase: true,
+              matchWholeWord: false
+            }).load("items");
+            const suffixMatches = paragraph.getRange().search(suffix, {
+              matchCase: true,
+              matchWholeWord: false
+            }).load("items");
+            await context.sync();
+            if (prefixMatches.items.length !== 1 || suffixMatches.items.length !== 1) {
+              throw new Error(
+                `تعذر تحديد علامتي النص الطويل بصورة فريدة في الفقرة ${paragraphIndex + 1}. لم يُنفذ الاستبدال.`
+              );
+            }
+            range = prefixMatches.items[0]!.expandTo(suffixMatches.items[0]!);
           }
-          const range = matches.items[0]!;
+
           range.load("text");
           await context.sync();
-          if (range.text !== step.expectedOriginalText) {
+          if (range.text !== source) {
             throw new Error("لم يعد النص المطابق كما تمت مراجعته؛ أُلغي الاستبدال.");
           }
           pending.push({ step, range });
