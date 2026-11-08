@@ -26,6 +26,8 @@ export interface KfgqpcRawRow {
   aya_text_emlaey?: string;
   jozz?: string | number;
   page?: string | number;
+  line_start?: string | number;
+  line_end?: string | number;
   surah?: string | number;
   surahNameArabic?: string;
   ayah?: string | number;
@@ -85,8 +87,12 @@ export function importKfgqpcHafsRows(
 
     const juzValue = optionalInteger(row.jozz);
     const pageValue = optionalInteger(row.page);
+    const lineStartValue = optionalInteger(row.line_start);
+    const lineEndValue = optionalInteger(row.line_end);
     if (juzValue !== undefined) record.juz = juzValue;
     if (pageValue !== undefined) record.page = pageValue;
+    if (lineStartValue !== undefined) record.lineStart = lineStartValue;
+    if (lineEndValue !== undefined) record.lineEnd = lineEndValue;
     return record;
   });
 
