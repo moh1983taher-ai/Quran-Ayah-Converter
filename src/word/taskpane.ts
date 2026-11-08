@@ -234,8 +234,17 @@ async function applyApprovedReplacements(): Promise<void> {
 
           range.load("text");
           await context.sync();
-          if (range.text !== source) {
-            throw new Error("لم يعد النص المطابق كما تمت مراجعته؛ أُلغي الاستبدال.");
+          // Office may return canonically equivalent Unicode sequences
+          // with a different normalization form (common with Arabic marks).
+          const actualText = range.text;
+          if (actualText.normalize("NFC") !== source.normalize("NFC")) {
+            const preview = (value: string) =>
+              Array.from(value).slice(0, 18).map(char =>
+                char.codePointAt(0)!.toString(16)
+              ).join(" ");
+            throw new Error(
+              `لم تتطابق حدود النص الذي حدده Word مع النص المراجع (طول النص: ${source.length}، طول النطاق: ${actualText.length}). أُلغي الاستبدال حمايةً للمستند. ${preview(actualText)}`
+            );
           }
           pending.push({ step, range });
         }
