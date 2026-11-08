@@ -24,8 +24,8 @@ jobs:
       - name: Download official archive with curl retries
         run: |
           mkdir -p data/_raw
-          curl --fail --location --show-error --retry 3 --retry-all-errors --connect-timeout 30 --max-time 180 \\
-            https://download.qurancomplex.gov.sa/resources_dev/UthmanicHafs_v2-0.zip \\
+          curl --fail --location --show-error --retry 3 --retry-all-errors --connect-timeout 30 --max-time 180 \
+            https://download.qurancomplex.gov.sa/resources_dev/UthmanicHafs_v2-0.zip \
             --output data/_raw/UthmanicHafs_v2-0.zip
 
       - name: Verify and import official dataset
