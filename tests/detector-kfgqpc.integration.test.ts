@@ -20,7 +20,7 @@ describe("QuranAyahDetector with real KFGQPC Hafs v18 records", () => {
     const text = `ومن ذلك قوله تعالى: ﴿${quote}﴾ (البقرة: 255).`;
     const match = detector.detect(text).find(item => item.references.some(ref => ref.surah === 2 && ref.ayah === 255));
     expect(match).toBeDefined();
-    expect(text.slice(match!.sourceStart, match!.sourceEnd)).toBe(quote);
+    expect(text.slice(match!.sourceStart, match!.sourceEnd)).toBe(`﴿${quote}﴾`);
     expect(match?.canonicalText).toBe(kfgqpcHafsSamples[2]?.uthmani);
   });
 
