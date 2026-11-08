@@ -74,12 +74,13 @@ function renderResults(): void {
     label.className = "check-row";
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
-    checkbox.disabled = item.status === "ambiguous" || !item.replacementText;
+    checkbox.checked = item.decision === "approved" || item.decision === "applied";
+    checkbox.disabled = item.status === "ambiguous" || !item.replacementText || item.decision === "applied";
     checkbox.addEventListener("change", () => {
       reviewItems = setReviewDecision(reviewItems, [item.id], checkbox.checked ? "approved" : "rejected");
       updateApplyButton();
     });
-    label.append(checkbox, document.createTextNode(item.status === "ambiguous" ? "ملتبسة — غير قابلة للاعتماد" : "أوافق على تحويل هذا الموضع"));
+    label.append(checkbox, document.createTextNode(item.decision === "applied" ? "تم تحويل هذا الموضع" : item.status === "ambiguous" ? "ملتبسة — غير قابلة للاعتماد" : "أوافق على تحويل هذا الموضع"));
     card.append(top, original, canonical, evidence, label);
     root.append(card);
   }
@@ -229,7 +230,7 @@ async function applyApprovedReplacements(): Promise<void> {
     });
 
     reviewItems = reviewItems.map(item =>
-      item.decision === "approved" ? { ...item, decision: "rejected" } : item
+      item.decision === "approved" ? { ...item, decision: "applied" } : item
     );
     renderResults();
     setStatus("اكتمل الاستبدال", `تم تحويل ${approved.length} موضعًا مع إعادة التحقق من النص الأصلي.`, "اكتمل");
@@ -246,7 +247,7 @@ async function applyApprovedReplacements(): Promise<void> {
 Office.onReady(() => {
   byId<HTMLButtonElement>("scanButton").addEventListener("click", () => void inspectDocument());
   byId<HTMLButtonElement>("selectNone").addEventListener("click", () => {
-    reviewItems = reviewItems.map(item => ({ ...item, decision: "pending" }));
+    reviewItems = reviewItems.map(item => item.decision === "applied" ? item : ({ ...item, decision: "pending" }));
     renderResults();
     toast("أُلغي تحديد جميع النتائج.");
   });
