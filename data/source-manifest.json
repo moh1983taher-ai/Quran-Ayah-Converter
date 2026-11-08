@@ -1,0 +1,44 @@
+{
+  "source": "King Fahd Glorious Qur'an Printing Complex",
+  "sourcePage": "https://qurancomplex.gov.sa/quran-dev/",
+  "resourceTitle": "Unicode Uthmanic Font (Hafs Narration)",
+  "officialArchive": {
+    "url": "https://download.qurancomplex.gov.sa/resources_dev/UthmanicHafs_v2-0.zip",
+    "fileName": "UthmanicHafs_v2-0.zip",
+    "releaseVersion": "13.0",
+    "lastModified": "2023-09-19",
+    "sha256": "a7b0e5591945712ec5e4d6142938ae4d1e9b49bdc89dff06222789bfebdfd72c",
+    "archiveBytes": 10729285
+  },
+  "containedData": {
+    "fileName": "hafsData_v2-0.json",
+    "format": "JSON",
+    "reportedBytes": 3594552,
+    "schemaFields": [
+      "id",
+      "jozz",
+      "sura_no",
+      "sura_name_en",
+      "sura_name_ar",
+      "page",
+      "line_start",
+      "line_end",
+      "aya_no",
+      "aya_text",
+      "aya_text_emlaey"
+    ],
+    "sourceMetadataMirror": "https://github.com/quran-ws/kfgqpc-resources/blob/main/resources/quran-dev/uthmanic-hafs/metadata.json",
+    "sha256": "Not independently verified in this project"
+  },
+  "font": {
+    "latestPortalVersion": "15.0",
+    "portalLastModified": "2026-09-30",
+    "note": "Font release version is distinct from the archived Quran data release version; do not treat 15.0 as the dataset version."
+  },
+  "rights": {
+    "redistribution": "Not cleared",
+    "bundlingInInstaller": "Not cleared",
+    "termsReviewed": false
+  },
+  "status": "source identified; data file not yet downloaded or independently validated"
+}
