@@ -88,6 +88,58 @@ describe("QuranAyahDetector", () => {
     expect(text.slice(match!.sourceStart, match!.sourceEnd)).toBe("﴿ﷲ لا اله الا هو الحي القيوم﴾");
   });
 
+  it("detects the supplied short excerpts in their correct Qur'anic contexts", () => {
+    const contextRecords: QuranAyahRecord[] = [
+      {
+        id: "35:12", surah: 35, ayah: 12, surahNameArabic: "فاطر",
+        uthmani: "وَمَا يَسْتَوِي الْبَحْرَانِ هَٰذَا عَذْبٌ فُرَاتٌ سَائِغٌ شَرَابُهُ وَهَٰذَا مِلْحٌ أُجَاجٌ وَمِن كُلٍّ تَأْكُلُونَ لَحْمًا طَرِيًّا وَتَسْتَخْرِجُونَ حِلْيَةً تَلْبَسُونَهَا وَتَرَى الْفُلْكَ فِيهِ مَوَاخِرَ لِتَبْتَغُوا مِن فَضْلِهِ وَلَعَلَّكُمْ تَشْكُرُونَ",
+        imlaei: "وما يستوي البحران هذا عذب فرات سائغ شرابه وهذا ملح اجاج ومن كل تاكلون لحما طريا وتستخرجون حلية تلبسونها وترى الفلك فيه مواخر لتبتغوا من فضله ولعلكم تشكرون"
+      },
+      {
+        id: "23:19", surah: 23, ayah: 19, surahNameArabic: "المؤمنون",
+        uthmani: "فَأَنشَأْنَا لَكُم بِهِ جَنَّاتٍ مِّن نَّخِيلٍ وَأَعْنَابٍ لَّكُمْ فِيهَا فَوَاكِهُ كَثِيرَةٌ وَمِنْهَا تَأْكُلُونَ",
+        imlaei: "فانشانا لكم به جنات من نخيل واعناب لكم فيها فواكه كثيرة ومنها تاكلون"
+      },
+      {
+        id: "23:21", surah: 23, ayah: 21, surahNameArabic: "المؤمنون",
+        uthmani: "وَإِنَّ لَكُمْ فِي الْأَنْعَامِ لَعِبْرَةً نُّسْقِيكُم مِّمَّا فِي بُطُونِهَا وَلَكُمْ فِيهَا مَنَافِعُ كَثِيرَةٌ وَمِنْهَا تَأْكُلُونَ",
+        imlaei: "وان لكم في الانعام لعبرة نسقيكم مما في بطونها ولكم فيها منافع كثيرة ومنها تاكلون"
+      },
+      {
+        id: "16:69", surah: 16, ayah: 69, surahNameArabic: "النحل",
+        uthmani: "ثُمَّ كُلِي مِن كُلِّ الثَّمَرَاتِ فَاسْلُكِي سُبُلَ رَبِّكِ ذُلُلًا يَخْرُجُ مِن بُطُونِهَا شَرَابٌ مُّخْتَلِفٌ أَلْوَانُهُ فِيهِ شِفَاءٌ لِّلنَّاسِ إِنَّ فِي ذَٰلِكَ لَآيَةً لِّقَوْمٍ يَتَفَكَّرُونَ",
+        imlaei: "ثم كلي من كل الثمرات فاسلكي سبل ربك ذللا يخرج من بطونها شراب مختلف الوانه فيه شفاء للناس ان في ذلك لاية لقوم يتفكرون"
+      }
+    ];
+    const contextDetector = new QuranAyahDetector(new InMemoryQuranIndex(contextRecords));
+    const examples: Array<{ quote: string; surah: number; ayah: number; ambiguous?: boolean }> = [
+      { quote: "وَمَا يَسْتَوِي الْبَحْرَانِ", surah: 35, ayah: 12 },
+      { quote: "مِّن نَّخِيلٍ وَأَعْنَابٍ", surah: 23, ayah: 19 },
+      { quote: "وَمِنْهَا تَأْكُلُونَ", surah: 23, ayah: 19, ambiguous: true },
+      { quote: "فَأَنشَأْنَا", surah: 23, ayah: 19 },
+      { quote: "لَّكُمْ فِيهَا", surah: 23, ayah: 19 },
+      { quote: "فَاسْلُكِي سُبُلَ رَبِّكِ ذُلُلً", surah: 16, ayah: 69 }
+    ];
+
+    for (const example of examples) {
+      const text = `شرح ﴿${example.quote}﴾ ثم متابعة`;
+      const match = contextDetector.detect(text).find(item =>
+        item.references.some(reference =>
+          reference.surah === example.surah && reference.ayah === example.ayah
+        )
+      );
+      expect(match, example.quote).toBeDefined();
+      expect(text.slice(match!.sourceStart, match!.sourceEnd)).toBe(`﴿${example.quote}﴾`);
+      if (example.ambiguous) {
+        expect(match?.status).toBe("ambiguous");
+        expect(match?.references).toContainEqual({ surah: 23, ayah: 21 });
+      } else {
+        expect(match?.status).not.toBe("ambiguous");
+        expect(match?.replacementText).toBeDefined();
+      }
+    }
+  });
+
   it("detects exact contiguous excerpts inside longer bracketed ayahs", () => {
     const excerptRecords: QuranAyahRecord[] = [
       {
@@ -168,7 +220,14 @@ describe("QuranAyahDetector", () => {
       }
     ];
     const repeatedDetector = new QuranAyahDetector(new InMemoryQuranIndex(repeatedRecords));
-    expect(repeatedDetector.detect("قال ﴿عليم حكيم﴾")).toHaveLength(0);
+    const matches = repeatedDetector.detect("قال ﴿عليم حكيم﴾");
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.status).toBe("ambiguous");
+    expect(matches[0]?.references).toEqual([
+      { surah: 2, ayah: 1 },
+      { surah: 3, ayah: 1 }
+    ]);
+    expect(matches[0]?.canonicalText).toBe("");
   });
 
   it("detects a bracketed ayah when one word is omitted and requests review", () => {
