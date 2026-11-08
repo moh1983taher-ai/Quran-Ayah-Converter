@@ -308,6 +308,17 @@ export class QuranAyahDetector {
           const canonicalTokens = tokenizeArabic(record.imlaei);
           const canonicalValues = canonicalTokens.map(token => token.value);
           for (let offset = 0; offset <= canonicalValues.length - sourceValues.length; offset += 1) {
+            // At the beginning of an ayah, very short generic openings are
+            // not identifying evidence. Permit a single distinctive word
+            // (e.g. "فأنشأنا") or a three-word opening ending in a distinctive
+            // token (e.g. "وما يستوي البحران"), but not "الله لا إله".
+            if (offset === 0 && sourceValues.length <= 3) {
+              const finalToken = sourceValues[sourceValues.length - 1] ?? "";
+              const distinctiveOpening =
+                (sourceValues.length === 1 && finalToken.length >= 5) ||
+                (sourceValues.length === 3 && finalToken.length >= 4);
+              if (!distinctiveOpening) continue;
+            }
             if (!sourceValues.every((value, index) => canonicalValues[offset + index] === value)) continue;
 
             // Keep the exact matching word slice from the canonical Uthmani
