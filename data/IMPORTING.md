@@ -40,3 +40,11 @@ const imported = importKfgqpcHafsRows(parsedRows, {
 ```
 
 The rows in tests are synthetic structural fixtures only. They are not Qur'an text and must never be used as a replacement dataset. See `source-manifest.json` for the identified archive, checksum reported by the source mirror, and current verification status. The JSON payload itself has not yet been downloaded and independently checked in this repository.
+
+## Automated local acquisition
+
+Run `npm run import:kfgqpc` from the repository root. The script downloads the official ZIP archive directly from the Complex's documented download host (or reuses a previously downloaded archive in `data/_raw/`), checks the archive size and SHA-256 against the currently recorded source-mirror values, extracts `hafsData_v2-0.json`, validates all 6,236 ayahs and writes `data/quran-hafs.json`.
+
+The archive checksum is currently a **provisional cross-check reported by the metadata mirror**, not yet independently confirmed against a successful direct download in this project. The script deliberately stops if the downloaded bytes differ. It never modifies the source text and does not publish the resulting dataset.
+
+The raw archive and generated JSON are local build inputs and are excluded from Git. Before distributing either file or bundling the font, review the exact KFGQPC package terms for the intended use.
