@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
            xsi:type="TaskPaneApp">
   <Id>4d4f5a8e-0c2e-4d89-9b45-7a2e0a7e1f36</Id>
   <Version>0.2.0.0</Version>
@@ -68,21 +69,21 @@
       </Host>
     </Hosts>
     <Resources>
-      <bt:Images xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0">
+      <bt:Images>
         <bt:Image id="Icon.16" DefaultValue="https://moh1983taher-ai.github.io/Quran-Ayah-Converter/assets/icon-16.png"/>
         <bt:Image id="Icon.32" DefaultValue="https://moh1983taher-ai.github.io/Quran-Ayah-Converter/assets/icon-32.png"/>
         <bt:Image id="Icon.80" DefaultValue="https://moh1983taher-ai.github.io/Quran-Ayah-Converter/assets/icon-80.png"/>
       </bt:Images>
-      <bt:Urls xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0">
+      <bt:Urls>
         <bt:Url id="Taskpane.Url" DefaultValue="https://moh1983taher-ai.github.io/Quran-Ayah-Converter/taskpane.html"/>
         <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://github.com/moh1983taher-ai/Quran-Ayah-Converter"/>
       </bt:Urls>
-      <bt:ShortStrings xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0">
+      <bt:ShortStrings>
         <bt:String id="Group.Label" DefaultValue="أدوات القرآن"/>
         <bt:String id="Button.Label" DefaultValue="محوّل الآيات"/>
         <bt:String id="GetStarted.Title" DefaultValue="محوّل الآيات القرآنية"/>
       </bt:ShortStrings>
-      <bt:LongStrings xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0">
+      <bt:LongStrings>
         <bt:String id="Button.Description" DefaultValue="فتح محوّل الآيات القرآنية لمراجعة الاقتباسات وتحويلها إلى الرسم العثماني."/>
         <bt:String id="GetStarted.Description" DefaultValue="افتح محوّل الآيات من تبويب الصفحة الرئيسية في Word."/>
       </bt:LongStrings>
