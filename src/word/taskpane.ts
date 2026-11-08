@@ -6,7 +6,7 @@ import { assertParagraphSnapshot, createParagraphReplacementPlan, type Paragraph
 declare const Office: { onReady(callback: () => void): void };
 declare const Word: { run<T>(callback: (context: WordContext) => Promise<T>): Promise<T> };
 interface WordCollection<T> { items: T[]; load(property: string): WordCollection<T>; }
-interface WordRange { text: string; start: number; end: number; load(property: string): WordRange; getRange(location?: "Content" | "Whole"): WordRange; insertText(text: string, location: "Replace"): WordRange; }
+interface WordRange { text: string; load(property: string): WordRange; expandTo(range: WordRange): WordRange; insertText(text: string, location: "Replace"): WordRange; search(query: string, options: { matchCase: boolean; matchWholeWord: boolean }): WordCollection<WordRange>; }
 interface WordParagraph { text: string; getRange(location?: "Content" | "Whole"): WordRange; }
 interface WordContext { document: { body: { paragraphs: WordCollection<WordParagraph>; tables: WordCollection<unknown>; } }; sync(): Promise<void>; }
 
@@ -173,12 +173,9 @@ async function applyApprovedReplacements(): Promise<void> {
           throw new Error("تغيرت بنية المستند منذ الفحص؛ أُلغي الاستبدال.");
         }
 
-        // Read the same content-only range used during detection. This avoids
-        // Word Search entirely and keeps detector offsets tied to Word offsets.
-        const contentRange = paragraph.getRange("Content").load("text,start,end");
-        await context.sync();
-        assertParagraphSnapshot(contentRange.text, snapshot);
-
+        // Use short, unique anchors instead of unsupported Range.start/end.
+        // Each anchor is searched only within its paragraph; the combined
+        // range is then expanded and checked against the reviewed source text.
         const plan = createParagraphReplacementPlan(
           paragraphIndex,
           snapshot,
@@ -191,30 +188,27 @@ async function applyApprovedReplacements(): Promise<void> {
         );
 
         for (const step of plan.steps) {
-          // Word.Range.start/end are absolute character positions in the
-          // document story (WordApiDesktop 1.4). Convert the detector's
-          // paragraph-relative UTF-16 offsets to an exact native Word range.
-          const target = paragraph.getRange("Content");
-          target.load("start,end");
-          await context.sync();
-          const baseStart = target.start;
-          target.start = baseStart + step.start;
-          target.end = baseStart + step.end;
-          target.load("text");
-          await context.sync();
+          const before = snapshot.slice(Math.max(0, step.start - 12), step.start);
+          const selected = snapshot.slice(step.start, step.end);
+          const after = snapshot.slice(step.end, Math.min(snapshot.length, step.end + 12));
+          const startAnchor = (before + selected).slice(-24, -Math.min(selected.length, 0) || undefined);
+          const firstAnchor = selected.slice(0, 18);
+          const lastAnchor = selected.slice(-18);
+          if (!firstAnchor || !lastAnchor) throw new Error("تعذر إنشاء علامات تحديد آمنة.");
 
+          const firstMatches = paragraph.getRange("Content").search(firstAnchor, { matchCase: true, matchWholeWord: false }).load("items");
+          const lastMatches = paragraph.getRange("Content").search(lastAnchor, { matchCase: true, matchWholeWord: false }).load("items");
+          await context.sync();
+          if (firstMatches.items.length !== 1 || lastMatches.items.length !== 1) {
+            throw new Error(`علامات الآية غير فريدة في الفقرة ${paragraphIndex + 1}؛ أُلغي الاستبدال دون تعديل.`);
+          }
+          const target = firstMatches.items[0]!.expandTo(lastMatches.items[0]!).load("text");
+          await context.sync();
           if (target.text !== step.expectedOriginalText) {
-            const codes = (value: string) =>
-              Array.from(value).slice(0, 16).map(char =>
-                char.codePointAt(0)!.toString(16)
-              ).join(" ");
-            throw new Error(
-              `تعذر التحقق من النطاق المباشر في الفقرة ${paragraphIndex + 1}. ` +
-              `المتوقع ${step.expectedOriginalText.length} حرفًا، والمحدد ${target.text.length}. ` +
-              `رموز البداية: ${codes(target.text)}. لم يُجر أي تعديل.`
-            );
+            throw new Error(`النطاق المحدد لا يطابق النص الذي تمت مراجعته في الفقرة ${paragraphIndex + 1}؛ أُلغي الاستبدال دون تعديل.`);
           }
           pending.push({ step, range: target });
+        }
         }
       }
 
