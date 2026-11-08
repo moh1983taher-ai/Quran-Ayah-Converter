@@ -37,7 +37,7 @@ export function createReviewItems(
         sourceStart: match.sourceStart,
         sourceEnd: match.sourceEnd,
         originalText,
-        replacementText: match.canonicalText,
+        replacementText: match.replacementText ?? match.canonicalText,
         references: match.references.map(reference => ({ ...reference })),
         confidence: match.confidence,
         status: match.status,
