@@ -7,6 +7,7 @@ import type {
 } from "./types.js";
 import { mapNormalizedRange, normalizeArabicWithMap } from "./normalizer.js";
 import { findFuzzyTokenAlignments, prepareFuzzySource } from "./alignment.js";
+import { resolveAyahIdentity } from "./identity-resolver.js";
 
 export interface DetectorOptions {
   /** Minimum number of normalized Arabic letters in an unmarked quotation. */
@@ -391,31 +392,101 @@ export class QuranAyahDetector {
   }
 
   private resolveOverlaps(candidates: Candidate[], text: string): AyahMatch[] {
-    const sorted = candidates
-      .filter(c => c.end > c.start && c.start >= 0 && c.end <= text.length)
-      .sort((a, b) => b.confidence - a.confidence || (b.end - b.start) - (a.end - a.start));
+    const valid = candidates.filter(c =>
+      c.end > c.start && c.start >= 0 && c.end <= text.length
+    );
+    const clusters: Candidate[][] = [];
 
-    const accepted: Candidate[] = [];
-    for (const candidate of sorted) {
-      const overlap = accepted.find(existing =>
-        candidate.start < existing.end && candidate.end > existing.start
+    // Group candidates describing the same source span. Distinct Qur'anic
+    // identities in one span must remain visible as ambiguity.
+    for (const candidate of valid) {
+      const cluster = clusters.find(items =>
+        items.some(item => spansOverlap(item, candidate))
       );
-      if (!overlap) accepted.push(candidate);
+      if (cluster) cluster.push(candidate);
+      else clusters.push([candidate]);
     }
 
-    return accepted
-      .sort((a, b) => a.start - b.start)
-      .map(candidate => ({
-        sourceStart: candidate.start,
-        sourceEnd: candidate.end,
-        references: candidate.records.map(({ surah, ayah }) => ({ surah, ayah })),
-        matchedText: text.slice(candidate.start, candidate.end),
-        canonicalText: candidate.records.map(record => record.uthmani).join(" "),
-        confidence: candidate.confidence,
-        evidence: candidate.evidence,
-        status: candidate.status
+    const resolved = clusters.map(cluster => {
+      const identityCandidates = cluster.map(candidate => ({
+        ...candidate,
+        identity: candidate.records.map(record => record.id).join("+")
       }));
+      const resolution = resolveAyahIdentity(identityCandidates, 0.065);
+      const winner = resolution?.winner ?? identityCandidates[0]!;
+      const competing = resolution?.competing ?? [];
+      const ambiguous = resolution?.ambiguous ?? false;
+      const references = ambiguous
+        ? uniqueReferences([winner, ...competing].flatMap(item => item.records))
+        : winner.records.map(({ surah, ayah }) => ({ surah, ayah }));
+
+      return {
+        candidate: winner,
+        references,
+        ambiguous,
+        confidence: resolution?.ranked[0]?.score ?? winner.confidence,
+        evidence: ambiguous
+          ? [...winner.evidence, {
+              type: "context" as const,
+              detail: "توجد آيات مرشحة أخرى متقاربة في درجة المطابقة؛ يلزم التحقق اليدوي"
+            }]
+          : winner.evidence
+      };
+    });
+
+    // If separate matches overlap partially, prefer the longer verified
+    // source span; don't merge unrelated neighbouring quotations.
+    const ordered = resolved.sort((a, b) =>
+      a.candidate.start - b.candidate.start ||
+      (b.candidate.end - b.candidate.start) - (a.candidate.end - a.candidate.start)
+    );
+    const accepted: typeof ordered = [];
+    for (const item of ordered) {
+      const overlapIndex = accepted.findIndex(existing =>
+        item.candidate.start < existing.candidate.end &&
+        item.candidate.end > existing.candidate.start
+      );
+      if (overlapIndex < 0) {
+        accepted.push(item);
+        continue;
+      }
+      const existing = accepted[overlapIndex]!;
+      const existingLength = existing.candidate.end - existing.candidate.start;
+      const itemLength = item.candidate.end - item.candidate.start;
+      if (itemLength > existingLength && !existing.ambiguous) accepted[overlapIndex] = item;
+    }
+
+    return accepted.map(item => ({
+      sourceStart: item.candidate.start,
+      sourceEnd: item.candidate.end,
+      references: item.references,
+      matchedText: text.slice(item.candidate.start, item.candidate.end),
+      canonicalText: item.ambiguous
+        ? ""
+        : item.candidate.records.map(record => record.uthmani).join(" "),
+      confidence: item.confidence,
+      evidence: item.evidence,
+      status: item.ambiguous ? "ambiguous" :
+        item.candidate.status
+    }));
   }
+}
+
+function spansOverlap(a: Candidate, b: Candidate): boolean {
+  return a.start < b.end && a.end > b.start;
+}
+
+function uniqueReferences(records: readonly QuranAyahRecord[]): AyahReference[] {
+  const seen = new Set<string>();
+  const references: AyahReference[] = [];
+  for (const record of records) {
+    const key = `${record.surah}:${record.ayah}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      references.push({ surah: record.surah, ayah: record.ayah });
+    }
+  }
+  return references;
 }
 
 function findBoundaryAware(
