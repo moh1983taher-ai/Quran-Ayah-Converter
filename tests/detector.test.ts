@@ -64,6 +64,56 @@ describe("QuranAyahDetector", () => {
     expect(matches.some(item => item.references[0]?.ayah === 2)).toBe(true);
   });
 
+  it("detects exact contiguous excerpts inside longer bracketed ayahs", () => {
+    const excerptRecords: QuranAyahRecord[] = [
+      {
+        id: "16:10",
+        surah: 16,
+        ayah: 10,
+        surahNameArabic: "النحل",
+        uthmani: "لَّكُم مِّنْهُ شَرَابٌ وَمِنْهُ شَجَرٌ فِيهِ تُسِيمُونَ",
+        imlaei: "لكم منه شراب ومنه شجر فيه تسيمون"
+      },
+      {
+        id: "16:11",
+        surah: 16,
+        ayah: 11,
+        surahNameArabic: "النحل",
+        uthmani: "يُنبِتُ لَكُم بِهِ الزَّرْعَ وَالزَّيْتُونَ وَالنَّخِيلَ وَالْأَعْنَابَ وَمِن كُلِّ الثَّمَرَاتِ",
+        imlaei: "ينبت لكم به الزرع والزيتون والنخيل والأعناب ومن كل الثمرات"
+      }
+    ];
+    const excerptDetector = new QuranAyahDetector(new InMemoryQuranIndex(excerptRecords));
+    const quotations: Array<[string, number]> = [
+      ["لكم منه شراب", 10],
+      ["ومنه شجر", 10],
+      ["فيه تسيمون", 10],
+      ["ينبت لكم به الزرع والزيتون والنخيل والأعناب ومن كل الثمرات", 11]
+    ];
+
+    for (const [quotation, ayah] of quotations) {
+      const matches = excerptDetector.detect(`شرح ﴿${quotation}﴾ ثم متابعة`);
+      expect(matches.some(item =>
+        item.references.some(reference => reference.surah === 16 && reference.ayah === ayah)
+      ), quotation).toBe(true);
+    }
+  });
+
+  it("does not guess the identity of a repeated short bracketed excerpt", () => {
+    const repeatedRecords: QuranAyahRecord[] = [
+      {
+        id: "2:1", surah: 2, ayah: 1, surahNameArabic: "البقرة",
+        uthmani: "وَاللَّهُ عَلِيمٌ حَكِيمٌ", imlaei: "والله عليم حكيم"
+      },
+      {
+        id: "3:1", surah: 3, ayah: 1, surahNameArabic: "آل عمران",
+        uthmani: "وَاللَّهُ عَلِيمٌ حَكِيمٌ", imlaei: "والله عليم حكيم"
+      }
+    ];
+    const repeatedDetector = new QuranAyahDetector(new InMemoryQuranIndex(repeatedRecords));
+    expect(repeatedDetector.detect("قال ﴿عليم حكيم﴾")).toHaveLength(0);
+  });
+
   it("detects a bracketed ayah when one word is omitted and requests review", () => {
     const text = "قال تعالى ﴿الله لا اله هو الحي القيوم﴾";
     const matches = detector.detect(text);
