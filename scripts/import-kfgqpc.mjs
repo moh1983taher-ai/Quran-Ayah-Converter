@@ -15,7 +15,7 @@ const SURAH_COUNTS = [7,286,200,176,120,165,206,75,129,109,123,111,43,52,99,128,
 
 function fail(message) { throw new Error(message); }
 function gitBlobSha1(bytes) {
-  return createHash("sha1").update(`blob ${bytes.byteLength}\\0`).update(bytes).digest("hex");
+  return createHash("sha1").update(`blob ${bytes.byteLength}\0`).update(bytes).digest("hex");
 }
 function decode(bytes) { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
 
@@ -30,13 +30,13 @@ function parseCsv(text) {
       else field += ch;
     } else if (ch === '"' && field.length === 0) quoted = true;
     else if (ch === ",") { row.push(field); field = ""; }
-    else if (ch === "\\n") { row.push(field); rows.push(row); row = []; field = ""; }
-    else if (ch !== "\\r") field += ch;
+    else if (ch === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+    else if (ch !== "\r") field += ch;
   }
   if (quoted) fail("Malformed CSV: unterminated quoted field");
   if (field.length || row.length) { row.push(field); rows.push(row); }
   if (!rows.length) fail("CSV file is empty");
-  const headers = rows.shift().map((h, i) => (i === 0 ? h.replace(/^\\uFEFF/, "") : h).trim());
+  const headers = rows.shift().map((h, i) => (i === 0 ? h.replace(/^\uFEFF/, "") : h).trim());
   return rows.filter(r => r.some(v => v.length)).map(values =>
     Object.fromEntries(headers.map((header, i) => [header, values[i] ?? ""]))
   );
