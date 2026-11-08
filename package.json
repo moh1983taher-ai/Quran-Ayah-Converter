@@ -7,10 +7,14 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "import:kfgqpc": "node scripts/import-kfgqpc.mjs"
   },
   "devDependencies": {
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
   }
 }
