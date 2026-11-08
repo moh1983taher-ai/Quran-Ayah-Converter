@@ -6,9 +6,8 @@ import { assertParagraphSnapshot, createParagraphReplacementPlan, type Paragraph
 declare const Office: { onReady(callback: () => void): void };
 declare const Word: { run<T>(callback: (context: WordContext) => Promise<T>): Promise<T> };
 interface WordCollection<T> { items: T[]; load(property: string): WordCollection<T>; }
-interface WordRange { text: string; load(property: string): WordRange; search(query: string, options: { matchCase: boolean; matchWholeWord: boolean }): WordSearchCollection; expandTo(range: WordRange): WordRange; insertText(text: string, location: "Replace"): WordRange; }
-interface WordSearchCollection { items: WordRange[]; load(property: string): WordSearchCollection; }
-interface WordParagraph { text: string; getRange(): WordRange; }
+interface WordRange { text: string; start: number; end: number; load(property: string): WordRange; getRange(location?: "Content" | "Whole"): WordRange; insertText(text: string, location: "Replace"): WordRange; }
+interface WordParagraph { text: string; getRange(location?: "Content" | "Whole"): WordRange; }
 interface WordContext { document: { body: { paragraphs: WordCollection<WordParagraph>; tables: WordCollection<unknown>; } }; sync(): Promise<void>; }
 
 const byId = <T extends HTMLElement>(id: string): T => {
@@ -95,16 +94,20 @@ async function inspectDocument(): Promise<void> {
     datasetPromise ??= loadDataset();
     const loaded = await datasetPromise;
     await Word.run(async context => {
-      const paragraphs = context.document.body.paragraphs.load("items/text");
+      const paragraphs = context.document.body.paragraphs.load("items");
       const tables = context.document.body.tables.load("items");
+      await context.sync();
+      // Capture the actual editable content range, excluding the paragraph mark.
+      const contentRanges = paragraphs.items.map(paragraph => paragraph.getRange("Content").load("text"));
       await context.sync();
       const detector = new QuranAyahDetector(loaded.index);
       reviewItems = [];
       paragraphSnapshots.clear();
       itemParagraphs.clear();
-      paragraphs.items.forEach((paragraph, index) => {
-        paragraphSnapshots.set(index, paragraph.text);
-        const local = createReviewItems(paragraph.text, detector.detect(paragraph.text));
+      paragraphs.items.forEach((_paragraph, index) => {
+        const paragraphText = contentRanges[index]!.text;
+        paragraphSnapshots.set(index, paragraphText);
+        const local = createReviewItems(paragraphText, detector.detect(paragraphText));
         const scoped = local.map(item => ({
           ...item,
           id: `p${index}:${item.id}`,
@@ -169,7 +172,12 @@ async function applyApprovedReplacements(): Promise<void> {
         if (!paragraph || snapshot === undefined) {
           throw new Error("تغيرت بنية المستند منذ الفحص؛ أُلغي الاستبدال.");
         }
-        assertParagraphSnapshot(paragraph.text, snapshot);
+
+        // Read the same content-only range used during detection. This avoids
+        // Word Search entirely and keeps detector offsets tied to Word offsets.
+        const contentRange = paragraph.getRange("Content").load("text,start,end");
+        await context.sync();
+        assertParagraphSnapshot(contentRange.text, snapshot);
 
         const plan = createParagraphReplacementPlan(
           paragraphIndex,
@@ -182,71 +190,32 @@ async function applyApprovedReplacements(): Promise<void> {
           }))
         );
 
+        const paragraphStart = contentRange.start;
         for (const step of plan.steps) {
-          const source = step.expectedOriginalText;
-          let range: WordRange;
-
-          // Word's Search API rejects long search strings. Resolve long
-          // quotations through two short, unique anchors, then expand the
-          // range between them and verify the complete original quotation.
-          if (source.length <= 200) {
-            const matches = paragraph.getRange().search(source, {
-              matchCase: true,
-              matchWholeWord: false
-            }).load("items");
-            await context.sync();
-            if (matches.items.length !== 1) {
-              throw new Error(
-                `تعذر تحديد موضع فريد للنص في الفقرة ${paragraphIndex + 1}. لم يُنفذ الاستبدال.`
-              );
-            }
-            range = matches.items[0]!;
-          } else {
-            const anchorLength = 24;
-            const prefix = source.slice(0, anchorLength);
-            const suffix = source.slice(-anchorLength);
-            const expectedStart = step.start;
-            const expectedSuffixStart = step.end - anchorLength;
-            if (
-              snapshot.indexOf(prefix) !== expectedStart ||
-              snapshot.indexOf(suffix) !== expectedSuffixStart ||
-              prefix === suffix
-            ) {
-              throw new Error("تعذر بناء علامتي تحقق فريدتين للنص الطويل؛ أُلغي الاستبدال.");
-            }
-
-            const prefixMatches = paragraph.getRange().search(prefix, {
-              matchCase: true,
-              matchWholeWord: false
-            }).load("items");
-            const suffixMatches = paragraph.getRange().search(suffix, {
-              matchCase: true,
-              matchWholeWord: false
-            }).load("items");
-            await context.sync();
-            if (prefixMatches.items.length !== 1 || suffixMatches.items.length !== 1) {
-              throw new Error(
-                `تعذر تحديد علامتي النص الطويل بصورة فريدة في الفقرة ${paragraphIndex + 1}. لم يُنفذ الاستبدال.`
-              );
-            }
-            range = prefixMatches.items[0]!.expandTo(suffixMatches.items[0]!);
-          }
-
-          range.load("text");
+          // Word.Range.start/end are absolute character positions in the
+          // document story (WordApiDesktop 1.4). Convert the detector's
+          // paragraph-relative UTF-16 offsets to an exact native Word range.
+          const target = paragraph.getRange("Content");
+          target.load("start,end");
           await context.sync();
-          // Office may return canonically equivalent Unicode sequences
-          // with a different normalization form (common with Arabic marks).
-          const actualText = range.text;
-          if (actualText.normalize("NFC") !== source.normalize("NFC")) {
-            const preview = (value: string) =>
-              Array.from(value).slice(0, 18).map(char =>
+          const baseStart = target.start;
+          target.start = baseStart + step.start;
+          target.end = baseStart + step.end;
+          target.load("text");
+          await context.sync();
+
+          if (target.text !== step.expectedOriginalText) {
+            const codes = (value: string) =>
+              Array.from(value).slice(0, 16).map(char =>
                 char.codePointAt(0)!.toString(16)
               ).join(" ");
             throw new Error(
-              `لم تتطابق حدود النص الذي حدده Word مع النص المراجع (طول النص: ${source.length}، طول النطاق: ${actualText.length}). أُلغي الاستبدال حمايةً للمستند. ${preview(actualText)}`
+              `تعذر التحقق من النطاق المباشر في الفقرة ${paragraphIndex + 1}. ` +
+              `المتوقع ${step.expectedOriginalText.length} حرفًا، والمحدد ${target.text.length}. ` +
+              `رموز البداية: ${codes(target.text)}. لم يُجر أي تعديل.`
             );
           }
-          pending.push({ step, range });
+          pending.push({ step, range: target });
         }
       }
 
