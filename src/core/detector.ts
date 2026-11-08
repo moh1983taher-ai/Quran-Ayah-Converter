@@ -307,6 +307,42 @@ export class QuranAyahDetector {
         for (const record of records) {
           const imlaeiTokens = tokenizeArabic(record.imlaei);
           const uthmaniTokens = tokenizeArabic(record.uthmani);
+
+          // Search the normalized Uthmani string as a whole before token
+          // alignment. This preserves exact word boundaries and handles cases
+          // where the imported imlaei tokenization differs from the source.
+          const uthmaniNormalized = normalizeArabicWithMap(record.uthmani);
+          const exactUthmani = findBoundaryAware(
+            uthmaniNormalized.value,
+            sourceValues.join(" ")
+          );
+          if (exactUthmani) {
+            const finalToken = sourceValues[sourceValues.length - 1] ?? "";
+            const weakOpening =
+              exactUthmani.start === 0 &&
+              sourceValues.length <= 3 &&
+              !(
+                (sourceValues.length === 1 && finalToken.length >= 5) ||
+                (sourceValues.length === 3 && finalToken.length >= 4)
+              );
+            if (!weakOpening) {
+              const mapped = mapNormalizedRange(
+                uthmaniNormalized,
+                exactUthmani.start,
+                exactUthmani.end
+              );
+              if (mapped) {
+                fragmentMatches.push({
+                  record,
+                  start: sourceTokens[0]!.start,
+                  end: sourceTokens[sourceTokens.length - 1]!.end,
+                  replacementText: record.uthmani.slice(mapped.start, mapped.end)
+                });
+                continue;
+              }
+            }
+          }
+
           // The Uthmani text is also searched directly. Some imported imlaei
           // strings omit a conjunction or use a spelling that differs from
           // the quotation, while the source Uthmani words remain exact.
