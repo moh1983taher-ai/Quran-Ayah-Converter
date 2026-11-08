@@ -106,6 +106,11 @@ describe("QuranAyahDetector", () => {
         imlaei: "وان لكم في الانعام لعبرة نسقيكم مما في بطونها ولكم فيها منافع كثيرة ومنها تاكلون"
       },
       {
+        id: "36:34", surah: 36, ayah: 34, surahNameArabic: "يس",
+        uthmani: "وَجَعَلْنَا فِيهَا جَنَّاتٍ مِّن نَّخِيلٍ وَأَعْنَابٍ وَفَجَّرْنَا فِيهَا مِنَ الْعُيُونِ",
+        imlaei: "وجعلنا فيها جنات من نخيل واعناب وفجرنا فيها من العيون"
+      },
+      {
         id: "16:69", surah: 16, ayah: 69, surahNameArabic: "النحل",
         uthmani: "ثُمَّ كُلِي مِن كُلِّ الثَّمَرَاتِ فَاسْلُكِي سُبُلَ رَبِّكِ ذُلُلًا يَخْرُجُ مِن بُطُونِهَا شَرَابٌ مُّخْتَلِفٌ أَلْوَانُهُ فِيهِ شِفَاءٌ لِّلنَّاسِ إِنَّ فِي ذَٰلِكَ لَآيَةً لِّقَوْمٍ يَتَفَكَّرُونَ",
         imlaei: "ثم كلي من كل الثمرات فاسلكي سبل ربك ذللا يخرج من بطونها شراب مختلف الوانه فيه شفاء للناس ان في ذلك لاية لقوم يتفكرون"
@@ -114,10 +119,10 @@ describe("QuranAyahDetector", () => {
     const contextDetector = new QuranAyahDetector(new InMemoryQuranIndex(contextRecords));
     const examples: Array<{ quote: string; surah: number; ayah: number; ambiguous?: boolean }> = [
       { quote: "وَمَا يَسْتَوِي الْبَحْرَانِ", surah: 35, ayah: 12 },
-      { quote: "مِّن نَّخِيلٍ وَأَعْنَابٍ", surah: 23, ayah: 19 },
+      { quote: "مِّن نَّخِيلٍ وَأَعْنَابٍ", surah: 23, ayah: 19, ambiguous: true },
       { quote: "وَمِنْهَا تَأْكُلُونَ", surah: 23, ayah: 19, ambiguous: true },
       { quote: "فَأَنشَأْنَا", surah: 23, ayah: 19 },
-      { quote: "لَّكُمْ فِيهَا", surah: 23, ayah: 19 },
+      { quote: "لَّكُمْ فِيهَا", surah: 23, ayah: 19, ambiguous: true },
       { quote: "فَاسْلُكِي سُبُلَ رَبِّكِ ذُلُلً", surah: 16, ayah: 69 }
     ];
 
@@ -132,7 +137,11 @@ describe("QuranAyahDetector", () => {
       expect(text.slice(match!.sourceStart, match!.sourceEnd)).toBe(`﴿${example.quote}﴾`);
       if (example.ambiguous) {
         expect(match?.status).toBe("ambiguous");
-        expect(match?.references).toContainEqual({ surah: 23, ayah: 21 });
+        if (example.quote === "مِّن نَّخِيلٍ وَأَعْنَابٍ") {
+          expect(match?.references).toContainEqual({ surah: 36, ayah: 34 });
+        } else {
+          expect(match?.references).toContainEqual({ surah: 23, ayah: 21 });
+        }
       } else {
         expect(match?.status).not.toBe("ambiguous");
         expect(match?.replacementText).toBeDefined();
