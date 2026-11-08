@@ -148,6 +148,21 @@ describe("QuranAyahDetector", () => {
     }
   });
 
+  it("does not consume an attached conjunction outside the quoted excerpt", () => {
+    const verse: QuranAyahRecord = {
+      id: "23:21", surah: 23, ayah: 21, surahNameArabic: "المؤمنون",
+      uthmani: "وَإِنَّ لَكُمْ فِي الْأَنْعَامِ لَعِبْرَةً نُّسْقِيكُم مِّمَّا فِي بُطُونِهَا وَلَكُمْ فِيهَا مَنَافِعُ كَثِيرَةٌ وَمِنْهَا تَأْكُلُونَ",
+      imlaei: "وان لكم في الانعام لعبرة نسقيكم مما في بطونها ولكم فيها منافع كثيرة ومنها تاكلون"
+    };
+    const singleVerseDetector = new QuranAyahDetector(new InMemoryQuranIndex([verse]));
+    const text = "شرح ﴿لَّكُمْ فِيهَا﴾";
+    const match = singleVerseDetector.detect(text)[0];
+
+    expect(match).toBeDefined();
+    expect(normalizeArabic(match!.replacementText ?? "")).toBe(normalizeArabic("لَكُمْ فِيهَا"));
+    expect(normalizeArabic(match!.replacementText ?? "")).not.toBe(normalizeArabic("وَلَكُمْ فِيهَا"));
+  });
+
   it("detects exact contiguous excerpts inside longer bracketed ayahs", () => {
     const excerptRecords: QuranAyahRecord[] = [
       {
