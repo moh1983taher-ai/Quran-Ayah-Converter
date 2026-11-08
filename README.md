@@ -58,3 +58,10 @@ npm run typecheck
 ## License
 
 The original source code in this repository is MIT-licensed. This license does **not** grant rights to third-party Qur'an datasets, fonts, or other assets; those remain subject to their respective terms.
+
+
+### Ayah identity resolution
+
+The core includes an evidence-weighted identity resolver. It ranks candidates using exact/normalized text, verse-bracket markers, explicit surah-and-ayah references, and fuzzy-alignment penalties. When two distinct identities have close scores, the detector returns an `ambiguous` result with the competing references instead of silently selecting one. Ambiguous results intentionally carry no canonical replacement text.
+
+This is a conservative first resolver, not a scholarly verification engine. Its weights and ambiguity margin require evaluation against a representative corpus of real Word documents before production use.
