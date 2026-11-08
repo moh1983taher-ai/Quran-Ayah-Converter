@@ -6,12 +6,12 @@ Official portal: https://qurancomplex.gov.sa/quran-dev/
 
 ## Preferred edition
 
-Use **Unicode Uthmanic Font (Hafs Narration)**, not the separate smart-device font. The official portal describes the former as the Unicode computer font for Uthmanic text and lists its Hafs update as 15.0, last modified 2026-09-30. The portal documents these useful columns:
+Use **Unicode Uthmanic Font (Hafs Narration)**, not the separate smart-device font, when selecting the display font. The official portal lists that font's Hafs update as 15.0, last modified 2026-09-30. This font version must not be assumed to be the dataset release version; record the dataset's own version separately. The portal documents these useful columns:
 
 - `sura_no`, `sura_name_ar`, `aya_no`
 - `aya_text_unicode` — display/replacement text
 - `aya_text_emlaey` — search text
-- `jozz`, `page` — optional layout metadata
+- `jozz`, `page`, `line_start`, `line_end` — optional layout metadata
 
 The importer maps those fields to the internal `QuranAyahRecord` type and rejects partial or inconsistent datasets. It requires exactly 6,236 ayahs and checks the expected count and every sequential reference in all 114 surahs.
 
