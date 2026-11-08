@@ -9,7 +9,7 @@ declare const Office: {
 };
 declare const Word: {
   run<T>(callback: (context: WordContext) => Promise<T>): Promise<T>;
-  run<T>(objects: WordRange[], callback: (context: WordContext) => Promise<T>): Promise<T>;
+  run<T>(objects: Array<WordRange | WordCollection<WordRange>>, callback: (context: WordContext) => Promise<T>): Promise<T>;
 };
 interface WordCollection<T> {
   items: T[];
