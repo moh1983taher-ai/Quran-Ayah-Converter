@@ -33,7 +33,7 @@ const byId = <T extends HTMLElement>(id: string): T => {
 };
 let reviewItems: ReviewItem[] = [];
 interface StoredReviewedRange {
-  range: WordRange;
+  range?: WordRange;
   paragraphIndex: number;
   start: number;
   end: number;
@@ -119,7 +119,7 @@ function renderResults(): void {
 }
 async function releaseReviewedRanges(): Promise<void> {
   const entries = [...itemRanges.values()];
-  const trackedRanges = entries.map(entry => entry.range);
+  const trackedRanges = entries.flatMap(entry => entry.range ? [entry.range] : []);
   if (trackedRanges.length) {
     await Word.run(trackedRanges, async context => {
       for (const entry of entries) context.trackedObjects.remove(entry.range);
@@ -168,15 +168,16 @@ async function inspectDocument(): Promise<void> {
             end += 1;
           }
 
+          const stored: StoredReviewedRange = {
+            paragraphIndex: index,
+            start,
+            end,
+            expectedText: paragraphText.slice(start, end)
+          };
+          itemRanges.set(item.id, stored);
           try {
             const resolved = await resolveReviewedRange(context, paragraph, paragraphText, start, end);
-            itemRanges.set(item.id, {
-              range: resolved.range,
-              paragraphIndex: index,
-              start,
-              end,
-              expectedText: paragraphText.slice(start, end)
-            });
+            stored.range = resolved.range;
           } catch (error) {
             const detail = error instanceof Error
               ? `${error.name}: ${error.message}`
@@ -286,27 +287,42 @@ async function applyApprovedReplacements(): Promise<void> {
   const approved = reviewItems.filter(item => item.decision === "approved");
   if (!approved.length) return;
 
+  const entries = approved.map(item => {
+    const stored = itemRanges.get(item.id);
+    if (!stored) throw new Error("بيانات موضع الآية غير موجودة؛ أعد فحص المستند.");
+    return { item, ...stored };
+  });
+
   const button = byId<HTMLButtonElement>("applyButton");
   button.disabled = true;
-  setStatus("جارٍ التحقق من مواضع الاستبدال", "لن يتغير المستند ما لم تطابق النطاقات النصوص التي تمت مراجعتها", "يتحقق");
+  setStatus("جارٍ إعادة تحديد المواضع", "التحقق من النص داخل الفقرات قبل أي تعديل", "يتحقق");
   try {
-    const entries = approved.map(item => {
-      const stored = itemRanges.get(item.id);
-      if (!stored) throw new Error("اعتمدت الآية للمراجعة، لكن تعذر تثبيت موضعها في Word. لم يتغير المستند؛ أعد فحص المستند ثم حاول مرة أخرى.");
-      return { item, ...stored };
-    });
-    const trackedRanges = entries.map(entry => entry.range);
-    await Word.run(trackedRanges, async context => {
-      for (const entry of entries) entry.range.load("text");
+    await Word.run(async context => {
+      const paragraphs = context.document.body.paragraphs.load("items");
       await context.sync();
 
-      for (const entry of entries) {
-        if (entry.range.text !== entry.expectedText) {
-          throw new Error("تغير نص إحدى الآيات بعد المراجعة؛ أُلغي الاستبدال حمايةً للمستند.");
+      const currentRanges = entries.map(entry => {
+        const paragraph = paragraphs.items[entry.paragraphIndex];
+        if (!paragraph) throw new Error("لم تعد الفقرة الأصلية موجودة؛ أُلغي الاستبدال.");
+        return paragraph.getRange("Content").load("text");
+      });
+      await context.sync();
+
+      const resolvedEntries: Array<typeof entries[number] & { range: WordRange }> = [];
+      for (let i = 0; i < entries.length; i += 1) {
+        const entry = entries[i]!;
+        const paragraph = paragraphs.items[entry.paragraphIndex]!;
+        const currentText = currentRanges[i]!.text;
+        if (currentText.slice(entry.start, entry.end) !== entry.expectedText) {
+          throw new Error("تغير النص أو موضع إحدى الآيات بعد الفحص؛ أُلغي الاستبدال حمايةً للمستند.");
         }
+        const resolved = await resolveReviewedRange(
+          context, paragraph, currentText, entry.start, entry.end
+        );
+        resolvedEntries.push({ ...entry, range: resolved.range });
       }
 
-      const ordered = [...entries].sort((a, b) =>
+      const ordered = [...resolvedEntries].sort((a, b) =>
         a.paragraphIndex - b.paragraphIndex || b.start - a.start
       );
       for (let i = 1; i < ordered.length; i += 1) {
@@ -318,15 +334,9 @@ async function applyApprovedReplacements(): Promise<void> {
         }
       }
 
-      // Reuse the exact Word.Range proxies created during the scan.
       for (const entry of ordered) {
         const inserted = entry.range.insertText(entry.item.replacementText, "Replace");
         inserted.font.name = "KFGQPC Uthmanic Script HAFS";
-      }
-      await context.sync();
-
-      for (const entry of entries) {
-        context.trackedObjects.remove(entry.range);
       }
       await context.sync();
     });
@@ -336,7 +346,7 @@ async function applyApprovedReplacements(): Promise<void> {
       item.decision === "approved" ? { ...item, decision: "applied" } : item
     );
     renderResults();
-    setStatus("اكتمل الاستبدال", `تم تحويل ${approved.length} موضعًا باستخدام النطاقات المحفوظة.`, "اكتمل");
+    setStatus("اكتمل الاستبدال", `تم تحويل ${approved.length} موضعًا بعد إعادة التحقق منها.`, "اكتمل");
     toast(`اكتمل تحويل ${approved.length} موضعًا معتمدًا.`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
