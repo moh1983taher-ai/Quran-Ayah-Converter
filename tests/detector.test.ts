@@ -50,7 +50,7 @@ describe("QuranAyahDetector", () => {
   });
 
   it("detects a numeric explicit reference beside the quoted text", () => {
-    const text = "الله لا اله الا هو الحي القيوم (2:255)";
+    const text = "ومن الآيات الدالة على ذلك قوله تعالى: الله لا اله الا هو الحي القيوم (2:255)";
     const matches = detector.detect(text);
     expect(matches.some(item => item.references.some(ref => ref.surah === 2 && ref.ayah === 255))).toBe(true);
   });
