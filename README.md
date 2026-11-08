@@ -29,7 +29,9 @@ data/
 
 ## Current status
 
-This repository contains the initial core scaffold. It does not yet include Qur'an text, fonts, a Word add-in manifest, or automatic replacement functionality.
+The core now includes deterministic matching plus a conservative word-level fuzzy alignment pass. The fuzzy pass tolerates a small number of omitted, inserted, or altered words and labels these results for manual review. It does not authorize automatic replacement. The implementation also prepares a document's token index once and reuses it across candidate ayahs.
+
+This repository still does not include Qur'an text, fonts, a Word add-in manifest, or document replacement functionality.
 
 ## Data provenance
 
