@@ -14,6 +14,11 @@
   <AppDomains>
     <AppDomain>https://moh1983taher-ai.github.io</AppDomain>
   </AppDomains>
+  <Requirements>
+    <Sets>
+      <Set Name="WordApi" MinVersion="1.3"/>
+    </Sets>
+  </Requirements>
   <Hosts>
     <Host Name="Document"/>
   </Hosts>
