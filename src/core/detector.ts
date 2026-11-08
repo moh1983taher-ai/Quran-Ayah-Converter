@@ -396,20 +396,30 @@ export class QuranAyahDetector {
             fragmentMatches.map(found => [found.record.id, found.record])
           ).values()];
           const first = fragmentMatches[0]!;
+          // Repeated locations are safe to approve only when every location
+          // yields exactly the same Uthmani excerpt. Otherwise the actual
+          // spelling differs and the result must remain ambiguous for review.
+          const sameUthmaniExcerpt = fragmentMatches.every(
+            found => found.replacementText === first.replacementText
+          );
+          const repeatedExactExcerpt = uniqueRecords.length > 1 && sameUthmaniExcerpt;
           const evidence: MatchEvidence[] = [{
             type: "exact-text",
-            detail: uniqueRecords.length > 1
-              ? "مقطع قرآني مطابق لأكثر من آية؛ يلزم تحديد موضعه"
-              : "مقطع متصل مطابق لألفاظ آية قرآنية داخل الأقواس"
+            detail: repeatedExactExcerpt
+              ? "مقتطف مكرر بالرسم العثماني نفسه في مواضع قرآنية متعددة"
+              : uniqueRecords.length > 1
+                ? "مقطع قرآني وارد في أكثر من موضع بصيغ عثمانية مختلفة؛ يلزم التحقق"
+                : "مقطع متصل مطابق لألفاظ آية قرآنية داخل الأقواس"
           }];
 
-          // Keep multiple exact identities in one candidate. This makes the
-          // ambiguity explicit and prevents an arbitrary high-confidence pick.
+          // Keep every verified reference. A repeated identical excerpt has
+          // one shared replacement text; differing Uthmani forms stay textless
+          // and therefore cannot be approved automatically.
           return [{
             start: first.start,
             end: first.end,
             records: uniqueRecords,
-            ...(uniqueRecords.length === 1
+            ...(sameUthmaniExcerpt
               ? { replacementText: first.replacementText }
               : {}),
             evidence,
@@ -627,8 +637,16 @@ export class QuranAyahDetector {
       const resolution = resolveAyahIdentity(identityCandidates, 0.065);
       const winner = resolution?.winner ?? identityCandidates[0]!;
       const competing = resolution?.competing ?? [];
-      const ambiguous = winner.records.length > 1 || (resolution?.ambiguous ?? false);
-      const references = ambiguous
+      const repeatedExactExcerpt =
+        winner.records.length > 1 &&
+        winner.replacementText !== undefined &&
+        winner.evidence.some(item =>
+          item.type === "exact-text" &&
+          item.detail.includes("مكرر بالرسم العثماني نفسه")
+        );
+      const ambiguous = !repeatedExactExcerpt &&
+        (winner.records.length > 1 || (resolution?.ambiguous ?? false));
+      const references = ambiguous || repeatedExactExcerpt
         ? uniqueReferences([winner, ...competing].flatMap(item => item.records))
         : winner.records.map(({ surah, ayah }) => ({ surah, ayah }));
 
@@ -640,9 +658,14 @@ export class QuranAyahDetector {
         evidence: ambiguous
           ? [...winner.evidence, {
               type: "context" as const,
-              detail: "توجد آيات مرشحة أخرى متقاربة في درجة المطابقة؛ يلزم التحقق اليدوي"
+              detail: "توجد آيات مرشحة أخرى بصيغ عثمانية مختلفة؛ يلزم التحقق اليدوي"
             }]
-          : winner.evidence
+          : repeatedExactExcerpt
+            ? [...winner.evidence, {
+                type: "context" as const,
+                detail: "المقتطف مكرر في المواضع المذكورة، والرسم العثماني متطابق؛ يمكن اعتماد النص المشترك"
+              }]
+            : winner.evidence
       };
     });
 
