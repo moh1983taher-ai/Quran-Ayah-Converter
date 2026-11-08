@@ -188,6 +188,7 @@ async function applyApprovedReplacements(): Promise<void> {
         );
 
         for (const step of plan.steps) {
+          const selected = step.expectedOriginalText;
           const firstAnchor = selected.slice(0, 18);
           const lastAnchor = selected.slice(-18);
           if (!firstAnchor || !lastAnchor) throw new Error("تعذر إنشاء علامات تحديد آمنة.");
@@ -204,7 +205,6 @@ async function applyApprovedReplacements(): Promise<void> {
             throw new Error(`النطاق المحدد لا يطابق النص الذي تمت مراجعته في الفقرة ${paragraphIndex + 1}؛ أُلغي الاستبدال دون تعديل.`);
           }
           pending.push({ step, range: target });
-        }
         }
       }
 
