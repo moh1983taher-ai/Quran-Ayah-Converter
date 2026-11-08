@@ -40,5 +40,13 @@
     "bundlingInInstaller": "Not cleared",
     "termsReviewed": false
   },
-  "status": "source identified; data file not yet downloaded or independently validated"
+  "status": "official host TLS connection failed from GitHub Actions; pinned mirror fallback implemented; actual import not yet run",
+  "acquisitionFallback": {
+    "sourceRepository": "https://github.com/thetruetruth/quran-data-kfgqpc",
+    "pinnedCommit": "281dbbe8eed1370daa5a023b6cd81655cbfd6473",
+    "file": "hafs/data/hafsData_v18.csv",
+    "githubGitBlobSha1": "9e2229cdb9c6e010429989a3f379c55ea25712a7",
+    "fileBytes": 2441337,
+    "note": "Pinned GitHub mirror of KFGQPC Hafs data; not a direct download from the official host. Dataset text and redistribution terms still require review."
+  }
 }
