@@ -6,7 +6,7 @@ describe("Word Qur'anic verse formatting", () => {
     const verse = "وَلَعَلَّكُمۡ تَشۡكُرُونَ";
     const formatted = ensureOrnamentalVerseBrackets(verse);
 
-    expect(formatted).toBe(\`﴿\${verse}\u2009﴾\`);
+    expect(formatted).toBe("﴿" + verse + "\u2009﴾");
     expect(formatted).toContain("تَشۡكُرُونَ");
     expect(formatted.endsWith("\u064E\u2009﴾")).toBe(true);
   });
