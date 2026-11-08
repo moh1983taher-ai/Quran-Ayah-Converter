@@ -146,7 +146,9 @@ export class QuranAyahDetector {
               ...match.evidence
             ],
             confidence: Math.min(0.995, match.confidence + 0.035),
-            status: "high-confidence"
+            status: match.confidence + 0.035 >= this.options.highConfidenceThreshold
+              ? "high-confidence"
+              : "needs-review"
           });
         }
         cursor = endMarker + close.length;
