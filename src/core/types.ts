@@ -44,5 +44,6 @@ export type MatchEvidence =
 export interface QuranIndex {
   get(reference: AyahReference): QuranAyahRecord | undefined;
   search(normalizedQuery: string): QuranAyahRecord[];
+  all(): readonly QuranAyahRecord[];
   readonly size: number;
 }
