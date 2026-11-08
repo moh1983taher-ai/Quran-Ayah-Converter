@@ -14,6 +14,10 @@ describe("Arabic normalization", () => {
     expect(normalizeArabic("إِلَىٰ أَنْ")).toBe("الي ان");
   });
 
+  it("normalizes Arabic presentation ligatures and removes invisible format controls", () => {
+    expect(normalizeArabic("ﷲ لَا\u200Dه")).toBe("الله لاه");
+  });
+
   it("does not merge taa marbuta and haa", () => {
     expect(normalizeArabic("رحمة")).not.toBe(normalizeArabic("رحمه"));
   });
