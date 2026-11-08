@@ -44,8 +44,9 @@ const DEFAULTS: Required<DetectorOptions> = {
 };
 
 const BRACKET_PAIRS: ReadonlyArray<readonly [string, string]> = [
-  // Only the Qur'anic ornamental brackets are accepted as verse delimiters.
-  ["﴿", "﴾"]
+  // Standard ornamental brackets and their legacy KFGQPC presentation glyphs.
+  ["﴿", "﴾"],
+  ["", ""]
 ];
 
 const SURAH_NAMES: ReadonlyArray<string> = [
@@ -141,7 +142,12 @@ export class QuranAyahDetector {
           // include the existing ornamental delimiters in the replacement range.
           // Word can then replace the pair and the excerpt together, avoiding
           // duplicated brackets while leaving surrounding prose untouched.
-          const coversBracketContent = match.start === 0 && match.end === content.length;
+          // Ignore only harmless whitespace/diacritic padding around the matched
+          // quotation. This lets Word replace the existing delimiters as well,
+          // without swallowing unmatched Arabic words or punctuation.
+          const coversBracketContent =
+            isBracketPadding(content.slice(0, match.start)) &&
+            isBracketPadding(content.slice(match.end));
           candidates.push({
             start: coversBracketContent ? start : contentStart + match.start,
             end: coversBracketContent ? endMarker + close.length : contentStart + match.end,
@@ -538,6 +544,10 @@ export class QuranAyahDetector {
         item.candidate.status
     }));
   }
+}
+
+function isBracketPadding(value: string): boolean {
+  return /^[\\s\\u0640\\u0610-\\u061A\\u064B-\\u065F\\u0670\\u06D6-\\u06ED]*$/u.test(value);
 }
 
 function spansOverlap(a: Candidate, b: Candidate): boolean {
