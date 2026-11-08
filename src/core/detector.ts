@@ -42,11 +42,8 @@ const DEFAULTS: Required<DetectorOptions> = {
 };
 
 const BRACKET_PAIRS: ReadonlyArray<readonly [string, string]> = [
-  ["﴿", "﴾"],
-  ["«", "»"],
-  ["“", "”"],
-  ["(", ")"],
-  ["[", "]"]
+  // Only the Qur'anic ornamental brackets are accepted as verse delimiters.
+  ["﴿", "﴾"]
 ];
 
 const SURAH_NAMES: ReadonlyArray<string> = [
