@@ -40,7 +40,7 @@ describe("QuranAyahDetector", () => {
     const matches = detector.detect(text);
     expect(matches).toHaveLength(1);
     expect(matches[0]?.references).toEqual([{ surah: 1, ayah: 1 }]);
-    expect(matches[0]?.matchedText).toBe("بسم الله الرحمن الرحيم");
+    expect(matches[0]?.matchedText).toBe("﴿بسم الله الرحمن الرحيم﴾");
     expect(text.slice(matches[0]!.sourceStart, matches[0]!.sourceEnd)).toBe(matches[0]?.matchedText);
     expect(matches[0]?.evidence.some(item => item.type === "verse-brackets")).toBe(true);
   });
