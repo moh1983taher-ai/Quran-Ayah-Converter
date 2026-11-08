@@ -122,7 +122,7 @@ async function releaseReviewedRanges(): Promise<void> {
   const trackedRanges = entries.flatMap(entry => entry.range ? [entry.range] : []);
   if (trackedRanges.length) {
     await Word.run(trackedRanges, async context => {
-      for (const entry of entries) context.trackedObjects.remove(entry.range);
+      for (const range of trackedRanges) context.trackedObjects.remove(range);
       await context.sync();
     });
   }
