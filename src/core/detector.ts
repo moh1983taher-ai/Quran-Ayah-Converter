@@ -6,6 +6,7 @@ import type {
   QuranIndex
 } from "./types.js";
 import { mapNormalizedRange, normalizeArabicWithMap } from "./normalizer.js";
+import { findFuzzyTokenAlignments } from "./alignment.js";
 
 export interface DetectorOptions {
   /** Minimum number of normalized Arabic letters in an unmarked quotation. */
@@ -213,7 +214,45 @@ export class QuranAyahDetector {
       }
     }
 
+    output.push(...this.findFuzzyMatches(source, records, false));
     return output;
+  }
+
+  private findFuzzyMatches(
+    source: string,
+    records: readonly QuranAyahRecord[],
+    allowShort: boolean
+  ): Array<{ start: number; end: number; records: QuranAyahRecord[]; evidence: MatchEvidence[]; confidence: number }> {
+    const matches: Array<{ start: number; end: number; records: QuranAyahRecord[]; evidence: MatchEvidence[]; confidence: number }> = [];
+
+    for (const record of records) {
+      const canonicalTokens = normalizeArabicWithMap(record.imlaei).value.split(/\\s+/u).filter(Boolean);
+      const minimumTokens = allowShort ? 3 : 5;
+      if (canonicalTokens.length < minimumTokens) continue;
+
+      const maxDistance = canonicalTokens.length >= 9 ? 2 : 1;
+      const alignments = findFuzzyTokenAlignments(source, record.imlaei, {
+        maxDistance,
+        minimumTokens
+      });
+      const best = alignments[0];
+      if (!best) continue;
+
+      // Fuzzy matches are suggestions only, even when the score is high.
+      const confidence = Math.min(0.90, 0.80 + best.similarity * 0.10);
+      matches.push({
+        start: best.sourceStart,
+        end: best.sourceEnd,
+        records: [record],
+        evidence: [{
+          type: "fuzzy-alignment",
+          detail: `محاذاة تقريبية على مستوى الكلمات؛ ${best.distance} اختلاف/حذف`
+        }],
+        confidence
+      });
+    }
+
+    return matches;
   }
 
   private matchPassage(
@@ -272,7 +311,11 @@ export class QuranAyahDetector {
       }
     }
 
-    if (!best) return undefined;
+    if (!best) {
+      const fuzzy = this.findFuzzyMatches(source, records, allowShort)
+        .sort((a, b) => b.confidence - a.confidence)[0];
+      return fuzzy;
+    }
     return {
       start: best.start,
       end: best.end,
