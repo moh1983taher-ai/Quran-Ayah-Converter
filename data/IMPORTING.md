@@ -6,10 +6,10 @@ Official portal: https://qurancomplex.gov.sa/quran-dev/
 
 ## Preferred edition
 
-Use **Unicode Uthmanic Font (Hafs Narration)**, not the separate smart-device font, when selecting the display font. The official portal lists that font's Hafs update as 15.0, last modified 2026-09-30. This font version must not be assumed to be the dataset release version; record the dataset's own version separately. The portal documents these useful columns:
+Use **Unicode Uthmanic Font (Hafs Narration)**, not the separate smart-device font, when selecting the display font. The portal currently lists the computer Unicode Hafs font as version 15.0, last modified 2026-09-30. This is a font release, not the data export version. The archived developer package identified for the Hafs dataset is `UthmanicHafs_v2-0.zip`, version 13.0, last modified 2023-09-19. Keep these versions separate. The portal documents these useful columns:
 
 - `sura_no`, `sura_name_ar`, `aya_no`
-- `aya_text_unicode` — display/replacement text
+- `aya_text` (archived v13 export) or `aya_text_unicode` (newer schema, if supplied) — display/replacement text
 - `aya_text_emlaey` — search text
 - `jozz`, `page`, `line_start`, `line_end` — optional layout metadata
 
@@ -39,4 +39,4 @@ const imported = importKfgqpcHafsRows(parsedRows, {
 });
 ```
 
-The rows in tests are synthetic structural fixtures only. They are not Qur'an text and must never be used as a replacement dataset.
+The rows in tests are synthetic structural fixtures only. They are not Qur'an text and must never be used as a replacement dataset. See `source-manifest.json` for the identified archive, checksum reported by the source mirror, and current verification status. The JSON payload itself has not yet been downloaded and independently checked in this repository.
