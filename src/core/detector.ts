@@ -523,7 +523,10 @@ export class QuranAyahDetector {
       matchedText: text.slice(item.candidate.start, item.candidate.end),
       canonicalText: item.ambiguous
         ? ""
-        : item.candidate.replacementText ?? item.candidate.records.map(record => record.uthmani).join(" "),
+        : item.candidate.records.map(record => record.uthmani).join(" "),
+      ...(!item.ambiguous && item.candidate.replacementText !== undefined
+        ? { replacementText: item.candidate.replacementText }
+        : {}),
       confidence: item.confidence,
       evidence: item.evidence,
       status: item.ambiguous ? "ambiguous" :
