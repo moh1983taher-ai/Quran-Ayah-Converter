@@ -345,21 +345,29 @@ export class QuranAyahDetector {
           // one ayah. Common words should not flood the review panel.
           if (sourceValues.length === 1 && fragmentMatches.length !== 1) return [];
 
-          // Two- and three-word excerpts may legitimately occur in more than
-          // one ayah. Return every exact source candidate; resolveOverlaps will
-          // preserve that as an explicit ambiguity rather than silently skip
-          // it or choose an arbitrary verse.
-          return fragmentMatches.map(found => ({
-            start: found.start,
-            end: found.end,
-            records: [found.record],
-            replacementText: found.replacementText,
-            evidence: [{
-              type: "exact-text",
-              detail: "مقطع متصل مطابق لألفاظ آية قرآنية داخل الأقواس"
-            }],
+          const uniqueRecords = [...new Map(
+            fragmentMatches.map(found => [found.record.id, found.record])
+          ).values()];
+          const first = fragmentMatches[0]!;
+          const evidence: MatchEvidence[] = [{
+            type: "exact-text",
+            detail: uniqueRecords.length > 1
+              ? "مقطع قرآني مطابق لأكثر من آية؛ يلزم تحديد موضعه"
+              : "مقطع متصل مطابق لألفاظ آية قرآنية داخل الأقواس"
+          }];
+
+          // Keep multiple exact identities in one candidate. This makes the
+          // ambiguity explicit and prevents an arbitrary high-confidence pick.
+          return [{
+            start: first.start,
+            end: first.end,
+            records: uniqueRecords,
+            ...(uniqueRecords.length === 1
+              ? { replacementText: first.replacementText }
+              : {}),
+            evidence,
             confidence: 0.99
-          }));
+          }];
         }
 
         // A bracketed excerpt may contain one omitted, inserted, or differently
@@ -572,7 +580,7 @@ export class QuranAyahDetector {
       const resolution = resolveAyahIdentity(identityCandidates, 0.065);
       const winner = resolution?.winner ?? identityCandidates[0]!;
       const competing = resolution?.competing ?? [];
-      const ambiguous = resolution?.ambiguous ?? false;
+      const ambiguous = winner.records.length > 1 || (resolution?.ambiguous ?? false);
       const references = ambiguous
         ? uniqueReferences([winner, ...competing].flatMap(item => item.records))
         : winner.records.map(({ surah, ayah }) => ({ surah, ayah }));
