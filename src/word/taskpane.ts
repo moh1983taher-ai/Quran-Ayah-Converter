@@ -202,7 +202,7 @@ async function applyApprovedReplacements(): Promise<void> {
             }
             range = matches.items[0]!;
           } else {
-            const anchorLength = 100;
+            const anchorLength = 24;
             const prefix = source.slice(0, anchorLength);
             const suffix = source.slice(-anchorLength);
             const expectedStart = step.start;
