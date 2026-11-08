@@ -23,6 +23,7 @@ export interface KfgqpcRawRow {
   sura_name_ar?: string;
   aya_no?: string | number;
   aya_text_unicode?: string;
+  aya_text?: string;
   aya_text_emlaey?: string;
   jozz?: string | number;
   page?: string | number;
@@ -67,7 +68,7 @@ export function importKfgqpcHafsRows(
     const surah = toInteger(row.sura_no ?? row.surah, "sura_no", index);
     const ayah = toInteger(row.aya_no ?? row.ayah, "aya_no", index);
     const surahNameArabic = (row.sura_name_ar ?? row.surahNameArabic ?? "").trim();
-    const uthmani = (row.aya_text_unicode ?? row.uthmani ?? "").trim();
+    const uthmani = (row.aya_text_unicode ?? row.aya_text ?? row.uthmani ?? "").trim();
     const imlaei = (row.aya_text_emlaey ?? row.imlaei ?? "").trim();
     const id = String(row.id ?? `${surah}:${ayah}`).trim();
 
