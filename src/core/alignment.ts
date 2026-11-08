@@ -16,10 +16,15 @@ export interface TokenAlignment {
   sourceTokenCount: number;
 }
 
+export interface PreparedFuzzySource {
+  normalized: NormalizedText;
+  tokens: AlignmentToken[];
+  positions: ReadonlyMap<string, readonly number[]>;
+}
+
 /** Tokenize Arabic words while retaining offsets in the original text. */
 export function tokenizeArabic(source: string): AlignmentToken[] {
-  const normalized = normalizeArabicWithMap(source);
-  return tokenizeNormalized(normalized);
+  return tokenizeNormalized(normalizeArabicWithMap(source));
 }
 
 export function tokenizeNormalized(normalized: NormalizedText): AlignmentToken[] {
@@ -30,22 +35,27 @@ export function tokenizeNormalized(normalized: NormalizedText): AlignmentToken[]
     const start = match.index ?? 0;
     const end = start + match[0].length;
     const mapped = mapNormalizedRange(normalized, start, end);
-    if (mapped) {
-      tokens.push({
-        value: match[0],
-        start: mapped.start,
-        end: mapped.end
-      });
-    }
+    if (mapped) tokens.push({ value: match[0], start: mapped.start, end: mapped.end });
   }
   return tokens;
 }
 
-/**
- * Levenshtein alignment over word tokens. A missing or altered word is
- * represented as an edit; callers decide whether the resulting similarity
- * is sufficient for review. No candidate is automatically approved here.
- */
+/** Prepare a document segment once; reuse it for every Qur'an candidate. */
+export function prepareFuzzySource(source: string): PreparedFuzzySource {
+  const normalized = normalizeArabicWithMap(source);
+  const tokens = tokenizeNormalized(normalized);
+  const positions = new Map<string, number[]>();
+
+  tokens.forEach((token, index) => {
+    const bucket = positions.get(token.value) ?? [];
+    bucket.push(index);
+    positions.set(token.value, bucket);
+  });
+
+  return { normalized, tokens, positions };
+}
+
+/** Levenshtein alignment over word tokens. */
 export function alignTokenSequence(
   canonicalTokens: readonly string[],
   sourceTokens: readonly AlignmentToken[]
@@ -92,37 +102,26 @@ export function alignTokenSequence(
 
   const distance = matrix[canonicalTokens.length]![sourceTokens.length]!;
   const denominator = Math.max(canonicalTokens.length, sourceTokens.length, 1);
-  return {
-    distance,
-    similarity: 1 - distance / denominator,
-    matchedTokens
-  };
+  return { distance, similarity: 1 - distance / denominator, matchedTokens };
 }
 
-/** Search candidate token windows, using shared words to limit comparisons. */
+/** Search candidate token windows using a prebuilt inverted token map. */
 export function findFuzzyTokenAlignments(
-  source: string,
+  source: string | PreparedFuzzySource,
   canonicalText: string,
   options: { maxDistance?: number; minimumTokens?: number } = {}
 ): TokenAlignment[] {
-  const normalizedSource = normalizeArabicWithMap(source);
-  const sourceTokens = tokenizeNormalized(normalizedSource);
+  const prepared = typeof source === "string" ? prepareFuzzySource(source) : source;
+  const sourceTokens = prepared.tokens;
   const canonicalTokens = tokenizeArabic(canonicalText).map(token => token.value);
   const minimumTokens = options.minimumTokens ?? 4;
   const maxDistance = options.maxDistance ?? 1;
 
   if (canonicalTokens.length < minimumTokens || sourceTokens.length === 0) return [];
 
-  const positions = new Map<string, number[]>();
-  sourceTokens.forEach((token, index) => {
-    const bucket = positions.get(token.value) ?? [];
-    bucket.push(index);
-    positions.set(token.value, bucket);
-  });
-
   const candidateStarts = new Set<number>();
   canonicalTokens.forEach((token, canonicalIndex) => {
-    for (const sourceIndex of positions.get(token) ?? []) {
+    for (const sourceIndex of prepared.positions.get(token) ?? []) {
       for (let shift = -1; shift <= 1; shift += 1) {
         const start = sourceIndex - canonicalIndex + shift;
         if (start >= 0 && start < sourceTokens.length) candidateStarts.add(start);
@@ -137,6 +136,7 @@ export function findFuzzyTokenAlignments(
       const window = sourceTokens.slice(start, start + length);
       const score = alignTokenSequence(canonicalTokens, window);
       if (score.distance > maxDistance || score.matchedTokens < minimumTokens - maxDistance) continue;
+
       const first = window[0];
       const last = window[window.length - 1];
       if (!first || !last) continue;
@@ -152,7 +152,7 @@ export function findFuzzyTokenAlignments(
   results.sort((a, b) =>
     b.similarity - a.similarity ||
     b.matchedTokens - a.matchedTokens ||
-    (a.sourceEnd - a.sourceStart) - (b.sourceEnd - b.sourceStart)
+    (a.sourceEnd - a.sourceStart) - (b.sourceEnd - a.sourceStart)
   );
 
   const unique: TokenAlignment[] = [];
