@@ -1,0 +1,67 @@
+name: Build and deploy Word task pane
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Verify source and tests
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Build task pane bundle
+        run: npm run build:taskpane
+
+      - name: Assemble static Word add-in site
+        run: |
+          mkdir -p site/assets site/data
+          cp src/word/taskpane.html site/taskpane.html
+          cp src/word/taskpane.css site/taskpane.css
+          cp src/word/taskpane.js site/taskpane.js
+          cp assets/icon-32.png site/assets/icon-32.png
+          cp assets/icon-80.png site/assets/icon-80.png
+          if [ -f data/quran-hafs.json ]; then
+            cp data/quran-hafs.json site/data/quran-hafs.json
+          fi
+          touch site/.nojekyll
+          cat > site/index.html <<'EOF'
+          <!doctype html>
+          <html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>محوّل الآيات القرآنية</title><meta http-equiv="refresh" content="0;url=taskpane.html"></head><body><a href="taskpane.html">فتح محوّل الآيات</a></body></html>
+          EOF
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
