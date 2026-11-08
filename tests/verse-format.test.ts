@@ -1,0 +1,29 @@
+import { describe, expect, it } from "vitest";
+import { ensureOrnamentalVerseBrackets } from "../src/word/verse-format.js";
+
+describe("Word Qur'anic verse formatting", () => {
+  it("preserves the final fatha and inserts a thin separator before the closing bracket", () => {
+    const verse = "وَلَعَلَّكُمۡ تَشۡكُرُونَ";
+    const formatted = ensureOrnamentalVerseBrackets(verse);
+
+    expect(formatted).toBe(`﴿${verse}\\u2009﴾`);
+    expect(formatted).toContain("تَشۡكُرُونَ");
+    expect(formatted.endsWith("\\u064E\\u2009﴾")).toBe(true);
+  });
+
+  it("normalizes an existing bracket pair without duplicating it or losing the final mark", () => {
+    const verse = "﴿وَلَعَلَّكُمۡ تَشۡكُرُونَ﴾";
+    expect(ensureOrnamentalVerseBrackets(verse))
+      .toBe("﴿وَلَعَلَّكُمۡ تَشۡكُرُونَ\\u2009﴾");
+  });
+
+  it("does not add a separator when the verse has no trailing combining mark", () => {
+    expect(ensureOrnamentalVerseBrackets("وَلَعَلَّكُمۡ تَشۡكُرُون"))
+      .toBe("﴿وَلَعَلَّكُمۡ تَشۡكُرُون﴾");
+  });
+
+  it("replaces legacy delimiters with one canonical ornamental pair", () => {
+    expect(ensureOrnamentalVerseBrackets("تَشْكُرُونَ"))
+      .toBe("﴿تَشْكُرُونَ\\u2009﴾");
+  });
+});
