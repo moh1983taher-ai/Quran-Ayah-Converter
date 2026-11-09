@@ -29,6 +29,25 @@
       <div class="status-dot" id="statusDot"></div><div><strong id="statusTitle">جاهز للفحص</strong><span id="statusText">افتح مستند Word ثم ابدأ الفحص</span></div>
       <span class="status-tag" id="statusTag">جاهز</span>
     </section>
+    <section class="bracket-tool" aria-labelledby="bracketToolTitle">
+      <div class="bracket-tool-copy">
+        <span class="section-kicker">تنسيق اختياري</span>
+        <h2 id="bracketToolTitle">توحيد الأقواس</h2>
+        <p>يبحث عن أزواج الأقواس القديمة المتطابقة، ويعرض معاينة قبل توحيدها إلى ﴿ ﴾.</p>
+      </div>
+      <button id="scanBracketsButton" class="secondary-button">فحص الأقواس</button>
+      <div id="bracketPreview" class="bracket-preview" hidden aria-live="polite">
+        <div class="bracket-stats">
+          <div><strong id="bracketPairCount">0</strong><span>زوج متطابق</span></div>
+          <div><strong id="bracketUnmatchedCount">0</strong><span>رمز غير مكتمل سيُترك كما هو</span></div>
+        </div>
+        <p id="bracketPreviewText"></p>
+        <div class="bracket-actions">
+          <button id="applyBracketsButton" class="apply-button" disabled>توحيد الأزواج المتطابقة</button>
+          <button id="cancelBracketsButton" class="text-button">إلغاء</button>
+        </div>
+      </div>
+    </section>
     <section class="section-heading"><div><span class="section-kicker">لوحة المراجعة</span><h2>الآيات المكتشفة <b id="resultCount">0</b></h2></div><button class="text-button" id="selectNone">إلغاء التحديد</button></section>
     <section id="emptyState" class="empty-state"><div class="empty-icon">۞</div><strong>لم يبدأ الفحص بعد</strong><p>ستظهر هنا الآيات التي يعثر عليها المحرك، مع مواضعها ودرجة الثقة.</p></section>
     <section id="results" class="results" aria-live="polite"></section>
