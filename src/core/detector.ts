@@ -99,18 +99,50 @@ SURAH_ALIASES.set(normalizeArabicWithMap("آلِ عمران").value, 3);
  */
 export class QuranAyahDetector {
   private readonly options: Required<DetectorOptions>;
+  /** Immutable, ordered snapshot reused by every paragraph in one document scan. */
+  private readonly records: readonly QuranAyahRecord[];
+  /** Expensive canonical normalization/tokenization is performed once per record. */
+  private readonly preparedRecords = new WeakMap<QuranAyahRecord, {
+    imlaeiNormalized: string;
+    imlaeiTokens: ReturnType<typeof tokenizeArabic>;
+    uthmaniNormalized: ReturnType<typeof normalizeArabicWithMap>;
+    uthmaniTokens: ReturnType<typeof tokenizeArabic>;
+  }>();
 
   constructor(private readonly index: QuranIndex, options: DetectorOptions = {}) {
     this.options = { ...DEFAULTS, ...options };
+    this.records = [...index.all()].sort(
+      (a, b) => a.surah - b.surah || a.ayah - b.ayah
+    );
+    for (const record of this.records) {
+      this.preparedRecords.set(record, {
+        imlaeiNormalized: normalizeArabicWithMap(record.imlaei).value,
+        imlaeiTokens: tokenizeArabic(record.imlaei),
+        uthmaniNormalized: normalizeArabicWithMap(record.uthmani),
+        uthmaniTokens: tokenizeArabic(record.uthmani)
+      });
+    }
+  }
+
+  private prepared(record: QuranAyahRecord) {
+    const cached = this.preparedRecords.get(record);
+    if (cached) return cached;
+    // Supports custom/dynamic QuranIndex implementations without weakening correctness.
+    const prepared = {
+      imlaeiNormalized: normalizeArabicWithMap(record.imlaei).value,
+      imlaeiTokens: tokenizeArabic(record.imlaei),
+      uthmaniNormalized: normalizeArabicWithMap(record.uthmani),
+      uthmaniTokens: tokenizeArabic(record.uthmani)
+    };
+    this.preparedRecords.set(record, prepared);
+    return prepared;
   }
 
   detect(text: string): AyahMatch[] {
     if (!text.trim() || this.index.size === 0) return [];
 
     const normalized = normalizeArabicWithMap(text);
-    const records = [...this.index.all()].sort(
-      (a, b) => a.surah - b.surah || a.ayah - b.ayah
-    );
+    const records = this.records;
     const candidates: Candidate[] = [];
 
     // First: explicit verse references (e.g. البقرة: 255).
@@ -224,7 +256,7 @@ export class QuranAyahDetector {
           if (current.surah !== previous.surah || current.ayah !== previous.ayah + 1) break;
         }
         group.push(current);
-        phrase += (phrase ? " " : "") + normalizeArabicWithMap(current.imlaei).value;
+        phrase += (phrase ? " " : "") + this.prepared(current).imlaeiNormalized;
         if (phrase.length < this.options.minimumUnmarkedLength) continue;
 
         let cursor = 0;
@@ -261,7 +293,7 @@ export class QuranAyahDetector {
     const preparedSource = prepareFuzzySource(source);
 
     for (const record of records) {
-      const canonicalTokens = normalizeArabicWithMap(record.imlaei).value.split(/\s+/u).filter(Boolean);
+      const canonicalTokens = this.prepared(record).imlaeiNormalized.split(/\s+/u).filter(Boolean);
       // Bracketed short fragments are handled by exact contiguous matching above.
       // Fuzzy alignment needs at least four words to avoid generic false positives.
       const minimumTokens = allowShort ? 4 : 5;
@@ -409,13 +441,14 @@ export class QuranAyahDetector {
         }> = [];
 
         for (const record of records) {
-          const imlaeiTokens = tokenizeArabic(record.imlaei);
-          const uthmaniTokens = tokenizeArabic(record.uthmani);
+          const preparedRecord = this.prepared(record);
+          const imlaeiTokens = preparedRecord.imlaeiTokens;
+          const uthmaniTokens = preparedRecord.uthmaniTokens;
 
           // Search the normalized Uthmani string as a whole before token
           // alignment. This preserves exact word boundaries and handles cases
           // where the imported imlaei tokenization differs from the source.
-          const uthmaniNormalized = normalizeArabicWithMap(record.uthmani);
+          const uthmaniNormalized = preparedRecord.uthmaniNormalized;
           const exactUthmani = findBoundaryAwareWithConjunctionPrefix(
             uthmaniNormalized.value,
             sourceValues.join(" ")
