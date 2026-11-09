@@ -108,20 +108,66 @@ export class QuranAyahDetector {
     uthmaniNormalized: ReturnType<typeof normalizeArabicWithMap>;
     uthmaniTokens: ReturnType<typeof tokenizeArabic>;
   }>();
+  /** Inverted token index shared by every paragraph in this document scan. */
+  private readonly recordsByToken = new Map<string, Set<QuranAyahRecord>>();
+  private readonly recordPositions = new Map<QuranAyahRecord, number>();
 
   constructor(private readonly index: QuranIndex, options: DetectorOptions = {}) {
     this.options = { ...DEFAULTS, ...options };
     this.records = [...index.all()].sort(
       (a, b) => a.surah - b.surah || a.ayah - b.ayah
     );
-    for (const record of this.records) {
-      this.preparedRecords.set(record, {
+    this.records.forEach((record, position) => {
+      const prepared = {
         imlaeiNormalized: normalizeArabicWithMap(record.imlaei).value,
         imlaeiTokens: tokenizeArabic(record.imlaei),
         uthmaniNormalized: normalizeArabicWithMap(record.uthmani),
         uthmaniTokens: tokenizeArabic(record.uthmani)
-      });
+      };
+      this.preparedRecords.set(record, prepared);
+      this.recordPositions.set(record, position);
+      for (const token of [...prepared.imlaeiTokens, ...prepared.uthmaniTokens]) {
+        this.addTokenPosting(token.value, record);
+      }
+    });
+  }
+
+  private addTokenPosting(value: string, record: QuranAyahRecord): void {
+    const variants = value.length > 2 && (value.startsWith("و") || value.startsWith("ف"))
+      ? [value, value.slice(1)]
+      : [value];
+    for (const variant of variants) {
+      const posting = this.recordsByToken.get(variant) ?? new Set<QuranAyahRecord>();
+      posting.add(record);
+      this.recordsByToken.set(variant, posting);
     }
+  }
+
+  /** Return records containing every requested token, preserving Qur'an order. */
+  private candidateRecordsForTokens(values: readonly string[]): QuranAyahRecord[] {
+    const unique = [...new Set(values)];
+    if (unique.length === 0) return [];
+    const postings = unique.map(value => this.recordsByToken.get(value));
+    if (postings.some(posting => !posting || posting.size === 0)) return [];
+    const anchor = postings.reduce((smallest, posting) =>
+      posting!.size < smallest!.size ? posting : smallest
+    )!;
+    return [...anchor]
+      .filter(record => postings.every(posting => posting!.has(record)))
+      .sort((left, right) =>
+        (this.recordPositions.get(left) ?? 0) - (this.recordPositions.get(right) ?? 0)
+      );
+  }
+
+  /** Return records sharing at least one token with the source. */
+  private candidateRecordsForAnyToken(values: readonly string[]): QuranAyahRecord[] {
+    const found = new Set<QuranAyahRecord>();
+    for (const value of new Set(values)) {
+      for (const record of this.recordsByToken.get(value) ?? []) found.add(record);
+    }
+    return [...found].sort((left, right) =>
+      (this.recordPositions.get(left) ?? 0) - (this.recordPositions.get(right) ?? 0)
+    );
   }
 
   private prepared(record: QuranAyahRecord) {
@@ -160,7 +206,7 @@ export class QuranAyahDetector {
       if (!quote) continue;
 
       const quoteNormalized = normalizeArabicWithMap(text.slice(quote.start, quote.end));
-      const canonical = normalizeArabicWithMap(record.imlaei).value;
+      const canonical = this.prepared(record).imlaeiNormalized;
       const ratio = exactQuote ? 1 : containmentRatio(quoteNormalized.value, canonical);
       if (ratio < 0.55) continue;
 
@@ -244,7 +290,14 @@ export class QuranAyahDetector {
     const normalized = normalizeArabicWithMap(source);
     const output: Array<{ start: number; end: number; records: QuranAyahRecord[]; evidence: MatchEvidence[]; confidence: number }> = [];
 
-    for (let i = 0; i < records.length; i += 1) {
+    const sourceTokenValues = tokenizeArabic(source).map(token => token.value);
+    const sourceTokenSet = new Set(sourceTokenValues);
+    const possibleStarts = this.candidateRecordsForAnyToken(sourceTokenValues)
+      .filter(record => sourceTokenSet.has(this.prepared(record).imlaeiTokens[0]?.value ?? ""));
+
+    for (const startRecord of possibleStarts) {
+      const i = this.recordPositions.get(startRecord) ?? records.indexOf(startRecord);
+      if (i < 0) continue;
       const group: QuranAyahRecord[] = [];
       let phrase = "";
 
@@ -291,16 +344,19 @@ export class QuranAyahDetector {
   ): Array<{ start: number; end: number; records: QuranAyahRecord[]; evidence: MatchEvidence[]; confidence: number }> {
     const matches: Array<{ start: number; end: number; records: QuranAyahRecord[]; evidence: MatchEvidence[]; confidence: number }> = [];
     const preparedSource = prepareFuzzySource(source);
+    const candidateRecords = this.candidateRecordsForAnyToken(
+      preparedSource.tokens.map(token => token.value)
+    );
 
-    for (const record of records) {
-      const canonicalTokens = this.prepared(record).imlaeiNormalized.split(/\s+/u).filter(Boolean);
+    for (const record of candidateRecords) {
+      const canonicalTokens = this.prepared(record).imlaeiTokens.map(token => token.value);
       // Bracketed short fragments are handled by exact contiguous matching above.
       // Fuzzy alignment needs at least four words to avoid generic false positives.
       const minimumTokens = allowShort ? 4 : 5;
       if (canonicalTokens.length < minimumTokens) continue;
 
       const maxDistance = canonicalTokens.length >= 9 ? 2 : 1;
-      const alignments = findFuzzyTokenAlignments(preparedSource, record.imlaei, {
+      const alignments = findFuzzyTokenAlignments(preparedSource, canonicalTokens, {
         maxDistance,
         minimumTokens
       });
@@ -440,7 +496,8 @@ export class QuranAyahDetector {
           replacementText: string;
         }> = [];
 
-        for (const record of records) {
+        const exactCandidates = this.candidateRecordsForTokens(sourceValues);
+        for (const record of exactCandidates) {
           const preparedRecord = this.prepared(record);
           const imlaeiTokens = preparedRecord.imlaeiTokens;
           const uthmaniTokens = preparedRecord.uthmaniTokens;
@@ -575,10 +632,12 @@ export class QuranAyahDetector {
             replacementText: string;
           }>();
 
-          for (const record of records) {
-            const canonicalTokens = tokenizeArabic(record.imlaei);
+          const fuzzyCandidates = this.candidateRecordsForAnyToken(sourceValues);
+          for (const record of fuzzyCandidates) {
+            const preparedRecord = this.prepared(record);
+            const canonicalTokens = preparedRecord.imlaeiTokens;
             const canonicalValues = canonicalTokens.map(token => token.value);
-            const uthmaniTokens = tokenizeArabic(record.uthmani);
+            const uthmaniTokens = preparedRecord.uthmaniTokens;
             if (uthmaniTokens.length !== canonicalTokens.length) continue;
 
             const shortestWindow = Math.max(4, sourceValues.length - 1);
@@ -630,9 +689,13 @@ export class QuranAyahDetector {
       length: number;
     } | undefined;
 
-    for (let i = 0; i < records.length; i += 1) {
-      const first = records[i];
-      if (!first) continue;
+    const firstSourceToken = tokenizeArabic(source)[0]?.value;
+    const possibleStarts = firstSourceToken
+      ? this.candidateRecordsForTokens([firstSourceToken])
+      : [];
+    for (const first of possibleStarts) {
+      const i = this.recordPositions.get(first) ?? records.indexOf(first);
+      if (i < 0) continue;
 
       let combined = "";
       const group: QuranAyahRecord[] = [];
@@ -644,7 +707,7 @@ export class QuranAyahDetector {
           if (current.surah !== previous.surah || current.ayah !== previous.ayah + 1) break;
         }
         group.push(current);
-        combined += (combined ? " " : "") + normalizeArabicWithMap(current.imlaei).value;
+        combined += (combined ? " " : "") + this.prepared(current).imlaeiNormalized;
         if (combined.length < (allowShort ? 4 : this.options.minimumUnmarkedLength)) continue;
 
         const found = findBoundaryAware(normalizedText, combined);
