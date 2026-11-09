@@ -108,12 +108,14 @@ export function alignTokenSequence(
 /** Search candidate token windows using a prebuilt inverted token map. */
 export function findFuzzyTokenAlignments(
   source: string | PreparedFuzzySource,
-  canonicalText: string,
+  canonicalText: string | readonly string[],
   options: { maxDistance?: number; minimumTokens?: number } = {}
 ): TokenAlignment[] {
   const prepared = typeof source === "string" ? prepareFuzzySource(source) : source;
   const sourceTokens = prepared.tokens;
-  const canonicalTokens = tokenizeArabic(canonicalText).map(token => token.value);
+  const canonicalTokens = typeof canonicalText === "string"
+    ? tokenizeArabic(canonicalText).map(token => token.value)
+    : [...canonicalText];
   const minimumTokens = options.minimumTokens ?? 4;
   const maxDistance = options.maxDistance ?? 1;
 
