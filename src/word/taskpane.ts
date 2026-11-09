@@ -3,6 +3,7 @@ import { normalizeArabic } from "../core/normalizer.js";
 import { loadQuranDatasetJson } from "../core/dataset-loader.js";
 import { createReviewItems, groupBracketedAyahMatches, setReviewDecision, type ReviewItem } from "./review-workflow.js";
 import { ensureOrnamentalVerseBrackets } from "./verse-format.js";
+import { formatQuranCitation, hasMatchingQuranCitation } from "./quran-citation.js";
 import { findLegacyBracketPairs, type MatchedBracketPair } from "./bracket-normalizer.js";
 
 
@@ -501,6 +502,11 @@ async function applyApprovedReplacements(): Promise<void> {
   const approved = reviewItems.filter(item => item.decision === "approved");
   if (!approved.length) return;
 
+  const addCitations = byId<HTMLInputElement>("addCitations").checked;
+  const quranIndex = addCitations
+    ? await (datasetPromise ??= loadDataset()).then(loaded => loaded.index)
+    : undefined;
+
   const entries = approved.map(item => {
     const stored = itemRanges.get(item.id);
     if (!stored) throw new Error("بيانات موضع الآية غير موجودة؛ أعد فحص المستند.");
@@ -522,7 +528,7 @@ async function applyApprovedReplacements(): Promise<void> {
       });
       await context.sync();
 
-      const resolvedEntries: Array<typeof entries[number] & { range: WordRange }> = [];
+      const resolvedEntries: Array<typeof entries[number] & { range: WordRange; paragraphText: string }> = [];
       for (let i = 0; i < entries.length; i += 1) {
         const entry = entries[i]!;
         const paragraph = paragraphs.items[entry.paragraphIndex]!;
@@ -550,7 +556,16 @@ async function applyApprovedReplacements(): Promise<void> {
 
       for (const entry of ordered) {
         const finalVerseText = ensureOrnamentalVerseBrackets(entry.item.replacementText);
-        const inserted = entry.range.insertText(finalVerseText, "Replace");
+        const citation = quranIndex
+          ? formatQuranCitation(entry.item.references, quranIndex)
+          : undefined;
+        const citationAlreadyPresent = citation
+          ? hasMatchingQuranCitation(entry.paragraphText.slice(entry.end), citation)
+          : false;
+        const replacement = citation && !citationAlreadyPresent
+          ? `${finalVerseText} ${citation}`
+          : finalVerseText;
+        const inserted = entry.range.insertText(replacement, "Replace");
         inserted.font.name = "KFGQPC Uthmanic Script HAFS";
       }
       await context.sync();
