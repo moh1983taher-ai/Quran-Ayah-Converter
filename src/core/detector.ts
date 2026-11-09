@@ -758,8 +758,12 @@ export class QuranAyahDetector {
           item.type === "exact-text" &&
           item.detail.includes("مكرر بالرسم العثماني نفسه")
         );
+      // Multiple records are expected for a verified consecutive passage;
+      // they do not make that passage ambiguous. Ambiguity is about competing
+      // identities for the same source span, not the number of ayahs in one
+      // already-resolved sequence.
       const ambiguous = !repeatedExactExcerpt &&
-        (winner.records.length > 1 || (resolution?.ambiguous ?? false));
+        (resolution?.ambiguous ?? false);
       const references = ambiguous || repeatedExactExcerpt
         ? uniqueReferences([winner, ...competing].flatMap(item => item.records))
         : winner.records.map(({ surah, ayah }) => ({ surah, ayah }));
