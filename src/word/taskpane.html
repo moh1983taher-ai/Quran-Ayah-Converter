@@ -29,6 +29,19 @@
       <div class="status-dot" id="statusDot"></div><div><strong id="statusTitle">جاهز للفحص</strong><span id="statusText">افتح مستند Word ثم ابدأ الفحص</span></div>
       <span class="status-tag" id="statusTag">جاهز</span>
     </section>
+    <section id="scanProgress" class="scan-progress" hidden aria-live="polite" aria-atomic="true">
+      <div class="scan-progress-heading">
+        <strong id="scanProgressPhase">جارٍ التحضير</strong>
+        <strong id="scanProgressPercent">…</strong>
+      </div>
+      <div class="scan-progress-track" role="progressbar" aria-label="تقدم فحص المستند" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="scanProgressBar">
+        <span></span>
+      </div>
+      <div class="scan-progress-meta">
+        <span id="scanProgressCount">جارٍ التحضير…</span>
+        <span id="scanProgressRemaining"></span>
+      </div>
+    </section>
     <section id="scanDiagnostics" class="scan-diagnostics" hidden aria-live="polite">
       <div class="diagnostics-heading">
         <div><span class="section-kicker">تقرير الأداء</span><h2>تفصيل زمن الفحص</h2></div>
