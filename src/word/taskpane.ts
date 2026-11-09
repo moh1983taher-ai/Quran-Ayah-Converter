@@ -236,7 +236,7 @@ async function applyLegacyBracketNormalization(): Promise<void> {
       const paragraphs = context.document.body.paragraphs.load("items");
       await context.sync();
 
-      const pendingReplacements: Array<{ offset: number; range: WordRange; replacement: string }> = [];
+      const pendingReplacements: Array<{ paragraphIndex: number; offset: number; range: WordRange; replacement: string }> = [];
 
       // Phase one: validate every paragraph and resolve every exact symbol
       // before queuing a single document mutation. A failed lookup therefore
@@ -274,7 +274,8 @@ async function applyLegacyBracketNormalization(): Promise<void> {
             throw new Error("تعذر تحديد أحد رموز الأقواس تطابقًا حرفيًا؛ أُلغي التنفيذ دون تغيير المستند.");
           }
           pendingReplacements.push({
-            offset: snapshot.paragraphIndex * 1_000_000 + item.offset,
+            paragraphIndex: snapshot.paragraphIndex,
+            offset: item.offset,
             range: target,
             replacement: item.replacement
           });
@@ -283,7 +284,9 @@ async function applyLegacyBracketNormalization(): Promise<void> {
 
       // Phase two: apply only after all ranges have passed validation.
       // Descending document offsets protect every remaining source position.
-      pendingReplacements.sort((a, b) => b.offset - a.offset);
+      pendingReplacements.sort((a, b) =>
+        b.paragraphIndex - a.paragraphIndex || b.offset - a.offset
+      );
       for (const item of pendingReplacements) {
         item.range.insertText(item.replacement, "Replace");
       }
