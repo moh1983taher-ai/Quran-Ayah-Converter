@@ -167,11 +167,11 @@ export class QuranAyahDetector {
       );
   }
 
-  /** Return records sharing at least one token with the source. */
+  /** Return records sharing at least one token (including conjunction variants). */
   private candidateRecordsForAnyToken(values: readonly string[]): QuranAyahRecord[] {
     const found = new Set<QuranAyahRecord>();
     for (const value of new Set(values)) {
-      for (const record of this.recordsByToken.get(value) ?? []) found.add(record);
+      for (const record of this.tokenPostings(value)) found.add(record);
     }
     return [...found].sort((left, right) =>
       (this.recordPositions.get(left) ?? 0) - (this.recordPositions.get(right) ?? 0)
@@ -300,8 +300,10 @@ export class QuranAyahDetector {
 
     const sourceTokenValues = tokenizeArabic(source).map(token => token.value);
     const possibleStarts = this.candidateRecordsForAnyToken(sourceTokenValues)
-      .filter(record => this.tokenPostings(sourceTokenValues[0] ?? "").has(record) ||
-        this.tokenPostings(this.prepared(record).imlaeiTokens[0]?.value ?? "").has(record));
+      .filter(record => sourceTokenValues.some(value => this.tokenPostings(value).has(record) &&
+        this.tokenPostings(value).has(record) &&
+        (this.prepared(record).imlaeiTokens[0]?.value === value ||
+          this.prepared(record).imlaeiTokens[0]?.value === value.slice(1))));
 
     for (const startRecord of possibleStarts) {
       const i = this.recordPositions.get(startRecord) ?? records.indexOf(startRecord);
