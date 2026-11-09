@@ -51,7 +51,7 @@ export function normalizeArabicWithMap(input: string): NormalizedText {
     }
   }
 
-  return { value, sourceStart, sourceEnd };
+  return { value, sourceStart, sourceEnd, sourceText: input };
 }
 
 export function normalizeArabic(input: string): string {
@@ -75,10 +75,21 @@ export function mapNormalizedRange(
   }
 
   const sourceStart = normalized.sourceStart[start];
-  const sourceEnd = normalized.sourceEnd[end - 1];
+  let sourceEnd = normalized.sourceEnd[end - 1];
 
   if (sourceStart === undefined || sourceEnd === undefined) {
     return undefined;
+  }
+
+  // The normalized form omits combining marks. Extend the mapped range over
+  // every immediately-following mark in the original text so replacements
+  // never split an Arabic grapheme cluster. Offsets remain UTF-16 indices.
+  while (sourceEnd < normalized.sourceText.length) {
+    const codePoint = String.fromCodePoint(
+      normalized.sourceText.codePointAt(sourceEnd)!
+    );
+    if (!ARABIC_DIACRITICS.test(codePoint)) break;
+    sourceEnd += codePoint.length;
   }
 
   return { start: sourceStart, end: sourceEnd };
