@@ -416,18 +416,12 @@ export class QuranAyahDetector {
         canonicalTokens.length - maxDistance
       );
       let possibleExactTokens = 0;
+      const canonicalCounts = new Map<string, number>();
       for (const token of canonicalTokens) {
-        const available = sourceTokenCounts.get(token) ?? 0;
-        if (available > 0) {
-          possibleExactTokens += 1;
-          sourceTokenCounts.set(token, available - 1);
-        }
+        canonicalCounts.set(token, (canonicalCounts.get(token) ?? 0) + 1);
       }
-      // Restore source counts for the next record. This local counter avoids
-      // allocating a second map for every candidate.
-      for (const token of canonicalTokens) {
-        const remaining = sourceTokenCounts.get(token);
-        if (remaining !== undefined) sourceTokenCounts.set(token, remaining + 1);
+      for (const [token, required] of canonicalCounts) {
+        possibleExactTokens += Math.min(required, sourceTokenCounts.get(token) ?? 0);
       }
       if (possibleExactTokens < requiredExactTokens) continue;
 
