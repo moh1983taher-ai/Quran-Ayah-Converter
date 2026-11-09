@@ -41,7 +41,7 @@ describe("optional legacy bracket normalization", () => {
     const result = findLegacyBracketPairs("😀ﭽآيةﭼ");
     expect(result.pairs[0]).toMatchObject({
       openingOffset: 2,
-      closingOffset: 5
+      closingOffset: 6
     });
   });
 });
