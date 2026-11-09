@@ -44,18 +44,23 @@ export function groupBracketedAyahMatches(
     ["ﮋ", "ﮊ"],
     ["ﵡ", "ﵠ"]
   ];
-  // Separators and printed ayah markers are internal to one quoted passage.
-  // Arabic/Western digits are admitted only as standalone markers, never as
-  // arbitrary prose; words between matches still prevent grouping.
+  // Between verse-sized matches, retain Qur'anic pause/annotation marks,
+  // combining signs, printed verse markers, punctuation and spacing. Unicode
+  // properties cover the full Arabic annotation range instead of a partial
+  // hand-maintained list. Arabic letters/numbers still block grouping, so
+  // explanatory prose can never be absorbed into a passage.
   const separatorOnly = (value: string): boolean =>
-    /^[\s*،؛,:.\-–—ـ۞۝۩|٠-٩0-9۞۝۩ۣ۟۠ۡۢۤۥۦۧۨ۩۪ۭ۫۬۞۝]*$/u.test(value);
+    /^[\\s\\p{M}\\p{P}\\p{S}\\u06DDـ٠-٩0-9]*$/u.test(value);
 
   const areConsecutiveAyahs = (items: readonly AyahMatch[]): boolean => {
-    const refs = items.map(item => item.references.length === 1 ? item.references[0] : undefined);
-    if (refs.some(reference => !reference)) return true;
+    // This grouping path receives verse-sized detector results. A result that
+    // already represents several possible/known references is not a safe
+    // building block for reconstructing a passage from neighboring matches.
+    if (items.some(item => item.references.length !== 1)) return false;
+    const refs = items.map(item => item.references[0]!);
     const first = refs[0]!;
     return refs.every((reference, index) =>
-      reference!.surah === first!.surah && reference!.ayah === first!.ayah + index
+      reference.surah === first.surah && reference.ayah === first.ayah + index
     );
   };
 
