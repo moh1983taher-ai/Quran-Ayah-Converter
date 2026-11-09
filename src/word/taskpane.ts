@@ -236,6 +236,11 @@ async function applyLegacyBracketNormalization(): Promise<void> {
       const paragraphs = context.document.body.paragraphs.load("items");
       await context.sync();
 
+      const pendingReplacements: Array<{ offset: number; range: WordRange; replacement: string }> = [];
+
+      // Phase one: validate every paragraph and resolve every exact symbol
+      // before queuing a single document mutation. A failed lookup therefore
+      // leaves the document entirely unchanged.
       for (const snapshot of bracketSnapshots) {
         const paragraph = paragraphs.items[snapshot.paragraphIndex];
         if (!paragraph) {
@@ -252,26 +257,35 @@ async function applyLegacyBracketNormalization(): Promise<void> {
           { offset: pair.closingOffset, symbol: pair.closing, replacement: "﴾" }
         ]).sort((a, b) => b.offset - a.offset);
 
-        // Resolve each single-character symbol exactly. Applying from right to
-        // left keeps all earlier offsets valid and changes no surrounding text.
-        for (const replacement of replacements) {
+        for (const item of replacements) {
           const occurrence = countExactSymbolOccurrencesBefore(
-            snapshot.text, replacement.symbol, replacement.offset
+            snapshot.text, item.symbol, item.offset
           );
           const matches = paragraph.getRange("Content")
-            .search(replacement.symbol, { matchCase: true, matchWholeWord: false })
+            .search(item.symbol, { matchCase: true, matchWholeWord: false })
             .load("items");
           await context.sync();
           for (const candidate of matches.items) candidate.load("text");
           await context.sync();
 
-          const exactMatches = matches.items.filter(candidate => candidate.text === replacement.symbol);
+          const exactMatches = matches.items.filter(candidate => candidate.text === item.symbol);
           const target = exactMatches[occurrence];
           if (!target) {
-            throw new Error("تعذر تحديد أحد رموز الأقواس تطابقًا حرفيًا؛ أُلغي التنفيذ.");
+            throw new Error("تعذر تحديد أحد رموز الأقواس تطابقًا حرفيًا؛ أُلغي التنفيذ دون تغيير المستند.");
           }
-          target.insertText(replacement.replacement, "Replace");
+          pendingReplacements.push({
+            offset: snapshot.paragraphIndex * 1_000_000 + item.offset,
+            range: target,
+            replacement: item.replacement
+          });
         }
+      }
+
+      // Phase two: apply only after all ranges have passed validation.
+      // Descending document offsets protect every remaining source position.
+      pendingReplacements.sort((a, b) => b.offset - a.offset);
+      for (const item of pendingReplacements) {
+        item.range.insertText(item.replacement, "Replace");
       }
       await context.sync();
     });
