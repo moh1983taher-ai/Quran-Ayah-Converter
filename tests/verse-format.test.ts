@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ensureOrnamentalVerseBrackets } from "../src/word/verse-format.js";
 
 describe("Word Qur'anic verse formatting", () => {
-  it("preserves the final fatha and inserts a thin separator before the closing bracket", () => {
+  it("preserves the final fatha and inserts a regular space before the closing bracket", () => {
     const verse = "وَلَعَلَّكُمۡ تَشۡكُرُونَ";
     const formatted = ensureOrnamentalVerseBrackets(verse);
 
