@@ -26,10 +26,10 @@ describe("Arabic normalization", () => {
   it("maps normalized offsets back to the original UTF-16 range", () => {
     const source = "قَالَ اللهُ";
     const normalized = normalizeArabicWithMap(source);
-    const range = mapNormalizedRange(normalized, 0, 2);
+    const range = mapNormalizedRange(normalized, 0, 3);
 
     expect(normalized.value).toBe("قال الله");
-    expect(range).toEqual({ start: 0, end: 4 });
+    expect(range).toEqual({ start: 0, end: 5 });
     expect(source.slice(range!.start, range!.end)).toBe("قَالَ");
   });
 
