@@ -300,7 +300,7 @@ export class QuranAyahDetector {
     content: string,
     records: readonly QuranAyahRecord[]
   ): PassageMatch[] {
-    const boundaries = [...content.matchAll(/(?:\s*(?:\*|[۝۞][٠-٩0-9]*|[،؛,:])\s*)+/gu)];
+    const boundaries = [...content.matchAll(/(?:\s*(?:\*|[،؛,:])\s*)+/gu)];
     if (!boundaries.length) return this.matchPassage(content, records, true);
 
     const segments: Array<{ start: number; end: number }> = [];
@@ -774,25 +774,7 @@ export class QuranAyahDetector {
       const canonicalText = item.ambiguous
         ? ""
         : item.candidate.records.map(record => record.uthmani).join(" ");
-      // A multi-ayah candidate can also arrive from the broad passage matcher
-      // when a marked segment contains presentation symbols. Ensure that the
-      // review layer still receives one complete canonical replacement and
-      // retain the original verse separators in their source order.
-      let replacementText = item.candidate.replacementText;
-      if (!item.ambiguous && replacementText === undefined &&
-          item.candidate.records.length > 1) {
-        const separators = [...matchedText.matchAll(
-          /(?:\\s*(?:\\*|[۝۞][٠-٩0-9]*|[،؛,:])\\s*)+/gu
-        )].map(match => match[0]);
-        replacementText = item.candidate.records.map((record, index) => {
-          const separator = separators[index] ?? " ";
-          return record.uthmani + separator;
-        }).join("");
-        // Keep any remaining trailing verse markers/separators after the last ayah.
-        if (separators.length > item.candidate.records.length) {
-          replacementText += separators.slice(item.candidate.records.length).join("");
-        }
-      }
+      const replacementText = item.candidate.replacementText;
 
       return {
         sourceStart: item.candidate.start,
