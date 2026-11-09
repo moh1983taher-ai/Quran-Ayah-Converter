@@ -143,17 +143,25 @@ export class QuranAyahDetector {
     }
   }
 
+  private tokenPostings(value: string): Set<QuranAyahRecord> {
+    const result = new Set(this.recordsByToken.get(value) ?? []);
+    if (value.length > 2 && (value.startsWith("و") || value.startsWith("ف"))) {
+      for (const record of this.recordsByToken.get(value.slice(1)) ?? []) result.add(record);
+    }
+    return result;
+  }
+
   /** Return records containing every requested token, preserving Qur'an order. */
   private candidateRecordsForTokens(values: readonly string[]): QuranAyahRecord[] {
     const unique = [...new Set(values)];
     if (unique.length === 0) return [];
-    const postings = unique.map(value => this.recordsByToken.get(value));
-    if (postings.some(posting => !posting || posting.size === 0)) return [];
+    const postings = unique.map(value => this.tokenPostings(value));
+    if (postings.some(posting => posting.size === 0)) return [];
     const anchor = postings.reduce((smallest, posting) =>
-      posting!.size < smallest!.size ? posting : smallest
-    )!;
+      posting.size < smallest.size ? posting : smallest
+    );
     return [...anchor]
-      .filter(record => postings.every(posting => posting!.has(record)))
+      .filter(record => postings.every(posting => posting.has(record)))
       .sort((left, right) =>
         (this.recordPositions.get(left) ?? 0) - (this.recordPositions.get(right) ?? 0)
       );
@@ -291,9 +299,9 @@ export class QuranAyahDetector {
     const output: Array<{ start: number; end: number; records: QuranAyahRecord[]; evidence: MatchEvidence[]; confidence: number }> = [];
 
     const sourceTokenValues = tokenizeArabic(source).map(token => token.value);
-    const sourceTokenSet = new Set(sourceTokenValues);
     const possibleStarts = this.candidateRecordsForAnyToken(sourceTokenValues)
-      .filter(record => sourceTokenSet.has(this.prepared(record).imlaeiTokens[0]?.value ?? ""));
+      .filter(record => this.tokenPostings(sourceTokenValues[0] ?? "").has(record) ||
+        this.tokenPostings(this.prepared(record).imlaeiTokens[0]?.value ?? "").has(record));
 
     for (const startRecord of possibleStarts) {
       const i = this.recordPositions.get(startRecord) ?? records.indexOf(startRecord);
