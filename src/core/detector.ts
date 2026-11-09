@@ -156,7 +156,7 @@ export class QuranAyahDetector {
         const contentStart = start + open.length;
         const contentEnd = endMarker;
         const content = text.slice(contentStart, contentEnd);
-        const matches = this.matchPassage(content, records, true);
+        const matches = this.matchBracketedPassage(content, records);
         for (const match of matches) {
           // When the matched quotation occupies the complete bracket content,
           // include the existing ornamental delimiters in the replacement range.
@@ -290,6 +290,73 @@ export class QuranAyahDetector {
     }
 
     return matches;
+  }
+
+  /**
+   * Matches verse-sized segments inside one outer quotation, then folds
+   * consecutive references into one passage. Original separators are retained.
+   */
+  private matchBracketedPassage(
+    content: string,
+    records: readonly QuranAyahRecord[]
+  ): PassageMatch[] {
+    const boundaries = [...content.matchAll(/(?:\s*\*\s*|\s*[۝۞][٠-٩0-9]*\s*)/gu)];
+    if (!boundaries.length) return this.matchPassage(content, records, true);
+
+    const segments: Array<{ start: number; end: number }> = [];
+    let cursor = 0;
+    for (const boundary of boundaries) {
+      const start = boundary.index ?? cursor;
+      if (start > cursor) segments.push({ start: cursor, end: start });
+      cursor = start + boundary[0].length;
+    }
+    if (cursor < content.length) segments.push({ start: cursor, end: content.length });
+    if (segments.length < 2) return this.matchPassage(content, records, true);
+
+    const resolved: Array<{
+      start: number; end: number; record: QuranAyahRecord;
+      replacementText: string; confidence: number; evidence: MatchEvidence[];
+    }> = [];
+    for (const segment of segments) {
+      const raw = content.slice(segment.start, segment.end);
+      const leading = raw.length - raw.trimStart().length;
+      const text = raw.trim();
+      if (!text) return [];
+      const found = this.matchPassage(text, records, true);
+      if (found.length !== 1 || found[0]!.records.length !== 1) return [];
+      const item = found[0]!;
+      const record = item.records[0]!;
+      resolved.push({
+        start: segment.start + leading + item.start,
+        end: segment.start + leading + item.end,
+        record,
+        replacementText: item.replacementText ?? record.uthmani,
+        confidence: item.confidence,
+        evidence: item.evidence
+      });
+    }
+
+    const first = resolved[0]!.record;
+    if (!resolved.every((item, index) =>
+      item.record.surah === first.surah && item.record.ayah === first.ayah + index
+    )) return [];
+
+    let replacementText = content;
+    for (const item of [...resolved].reverse()) {
+      replacementText = replacementText.slice(0, item.start) +
+        item.replacementText + replacementText.slice(item.end);
+    }
+    return [{
+      start: 0,
+      end: content.length,
+      records: resolved.map(item => item.record),
+      replacementText,
+      confidence: Math.min(...resolved.map(item => item.confidence)),
+      evidence: resolved.flatMap(item => item.evidence).concat([{
+        type: "context",
+        detail: "مقطع واحد يضم آيات متتابعة؛ حُفظت فواصل الآيات الأصلية"
+      }])
+    }];
   }
 
   private matchPassage(
