@@ -300,10 +300,14 @@ export class QuranAyahDetector {
 
     const sourceTokenValues = tokenizeArabic(source).map(token => token.value);
     const possibleStarts = this.candidateRecordsForAnyToken(sourceTokenValues)
-      .filter(record => sourceTokenValues.some(value => this.tokenPostings(value).has(record) &&
-        this.tokenPostings(value).has(record) &&
-        (this.prepared(record).imlaeiTokens[0]?.value === value ||
-          this.prepared(record).imlaeiTokens[0]?.value === value.slice(1))));
+      .filter(record => {
+        const first = this.prepared(record).imlaeiTokens[0]?.value ?? "";
+        return sourceTokenValues.some(value =>
+          value === first ||
+          (value.length > 2 && value.slice(1) === first) ||
+          (first.length > 2 && first.slice(1) === value)
+        );
+      });
 
     for (const startRecord of possibleStarts) {
       const i = this.recordPositions.get(startRecord) ?? records.indexOf(startRecord);
