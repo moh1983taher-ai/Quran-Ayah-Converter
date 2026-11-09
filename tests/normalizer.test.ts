@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { tokenizeArabic } from "../src/core/alignment.js";
 import {
   mapNormalizedRange,
   normalizeArabic,
@@ -28,8 +29,8 @@ describe("Arabic normalization", () => {
     const range = mapNormalizedRange(normalized, 0, 2);
 
     expect(normalized.value).toBe("قال الله");
-    expect(range).toEqual({ start: 0, end: 3 });
-    expect(source.slice(range!.start, range!.end)).toBe("قَا");
+    expect(range).toEqual({ start: 0, end: 4 });
+    expect(source.slice(range!.start, range!.end)).toBe("قَالَ");
   });
 
   it("includes all trailing Qur'anic marks in a mapped range without consuming separators", () => {
