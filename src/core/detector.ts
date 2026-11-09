@@ -322,7 +322,17 @@ export class QuranAyahDetector {
       const leading = raw.length - raw.trimStart().length;
       const text = raw.trim();
       if (!text) return [];
-      const found = this.matchPassage(text, records, true);
+
+      // Printed verse markers belong to the separator between ayahs, not to
+      // the searchable verse wording. Keep them in the source slice so the
+      // final replacement preserves their exact position and spelling.
+      const trailingMarker = /(\\s*[۝۞]\\s*[٠-٩0-9]+)\\s*$/u.exec(text);
+      const searchableText = trailingMarker
+        ? text.slice(0, trailingMarker.index).trimEnd()
+        : text;
+      if (!searchableText) return [];
+
+      const found = this.matchPassage(searchableText, records, true);
       if (found.length !== 1 || found[0]!.records.length !== 1) return [];
       const item = found[0]!;
       const record = item.records[0]!;
