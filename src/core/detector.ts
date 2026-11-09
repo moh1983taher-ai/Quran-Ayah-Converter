@@ -53,8 +53,19 @@ const DEFAULTS: Required<DetectorOptions> = {
 };
 
 const BRACKET_PAIRS: ReadonlyArray<readonly [string, string]> = [
-  // Standard ornamental brackets and their legacy KFGQPC presentation glyphs.
+  // Keep detector boundaries identical to the legacy-bracket normalizer and
+  // review workflow. A quotation must be recognized as one passage regardless
+  // of which supported Qur'anic font glyph pair surrounds it.
   ["﴿", "﴾"],
+  ["ﭽ", "ﭼ"],
+  ["ﭿ", "ﭾ"],
+  ["ﮁ", "ﮀ"],
+  ["ﮃ", "ﮂ"],
+  ["ﮅ", "ﮄ"],
+  ["ﮇ", "ﮆ"],
+  ["ﮉ", "ﮈ"],
+  ["ﮋ", "ﮊ"],
+  ["ﵡ", "ﵠ"],
   ["", ""]
 ];
 
