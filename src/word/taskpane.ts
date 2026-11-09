@@ -565,81 +565,6 @@ async function resolveReviewedRangesBatch(
   return result;
 }
 
-/**
- * Resolves a range once during scanning, verifies it, and tracks the actual
- * Word.Range proxy so the approval phase can reuse that same object.
- */
-function normalizeForWordRange(text: string): string {
-  return normalizeArabic(text).replace(/\\s+/gu, " ").trim();
-}
-
-async function resolveReviewedRange(
-  context: WordContext,
-  paragraph: WordParagraph,
-  snapshot: string,
-  start: number,
-  end: number
-): Promise<{ range: WordRange }> {
-  const expected = snapshot.slice(start, end);
-  if (!expected) throw new Error("نطاق الآية فارغ؛ أُلغي تثبيت الموضع.");
-
-  const content = paragraph.getRange("Content");
-  const options = { matchCase: true, matchWholeWord: false };
-  let exactRange: WordRange;
-
-  if (expected.length <= 240) {
-    const occurrence = countAnchorOccurrencesBefore(snapshot, expected, start);
-    const matches = content.search(expected, options).load("items");
-    await context.sync();
-    for (const candidate of matches.items) candidate.load("text");
-    await context.sync();
-
-    // Word search can return near-matches for Arabic text (for example,
-    // differences involving diacritics). Keep only byte-for-byte text matches
-    // before using the occurrence index derived from the paragraph snapshot.
-    const exactMatches = matches.items.filter(candidate => normalizeForWordRange(candidate.text) === normalizeForWordRange(expected));
-    const match = exactMatches[occurrence];
-    if (!match) {
-      throw new Error(`لم يُعثر على تطابق حرفي في نتائج Word (الموضع ${occurrence + 1} من ${exactMatches.length}).`);
-    }
-    exactRange = match;
-  } else {
-    // Word Search is limited to 255 characters; search two real text segments.
-    const chunkLength = Math.min(200, Math.floor(expected.length / 2));
-    const prefix = expected.slice(0, chunkLength);
-    const suffix = expected.slice(expected.length - chunkLength);
-    const prefixOccurrence = countAnchorOccurrencesBefore(snapshot, prefix, start);
-    const suffixOccurrence = countAnchorOccurrencesBefore(snapshot, suffix, end - chunkLength);
-
-    const prefixMatches = content.search(prefix, options).load("items");
-    const suffixMatches = content.search(suffix, options).load("items");
-    await context.sync();
-    for (const candidate of [...prefixMatches.items, ...suffixMatches.items]) candidate.load("text");
-    await context.sync();
-
-    const exactPrefixes = prefixMatches.items.filter(candidate => normalizeForWordRange(candidate.text) === normalizeForWordRange(prefix));
-    const exactSuffixes = suffixMatches.items.filter(candidate => normalizeForWordRange(candidate.text) === normalizeForWordRange(suffix));
-    const prefixRange = exactPrefixes[prefixOccurrence];
-    const suffixRange = exactSuffixes[suffixOccurrence];
-    if (!prefixRange || !suffixRange) {
-      throw new Error("تعذر تثبيت بداية الآية ونهايتها بتطابق حرفي في Word.");
-    }
-    exactRange = prefixRange.expandTo(suffixRange).load("text");
-    await context.sync();
-  }
-
-  // Short exact matches already loaded candidate text in the search batch above;
-  // avoid issuing a second load/sync for the same Word.Range proxy.
-  if (normalizeForWordRange(exactRange.text) !== normalizeForWordRange(expected)) {
-    throw new Error("موضع Word لا يطابق نص الآية الذي تمت مراجعته.");
-  }
-
-  // Persist the exact range through Office.js trackedObjects for the later
-  // approval/apply Word.run session. Collections used to discover it need not be tracked.
-  context.trackedObjects.add(exactRange);
-  await context.sync();
-  return { range: exactRange };
-}
 
 async function applyApprovedReplacements(): Promise<void> {
   const approved = reviewItems.filter(item => item.decision === "approved");
@@ -681,14 +606,22 @@ async function applyApprovedReplacements(): Promise<void> {
       });
       const resolvedRanges: WordRange[] = [];
       const applyBatchSize = 60;
-      for (let offset = 0; offset < rangeRequests.length; offset += applyBatchSize) {
-        const batch = rangeRequests.slice(offset, offset + applyBatchSize);
-        const results = await resolveReviewedRangesBatch(context, batch);
-        const failed = results.find(result => !result.range);
-        if (failed) {
-          throw new Error(failed.error ?? "تعذر التحقق من أحد مواضع الآيات؛ لم يُعدّل المستند.");
+      try {
+        for (let offset = 0; offset < rangeRequests.length; offset += applyBatchSize) {
+          const batch = rangeRequests.slice(offset, offset + applyBatchSize);
+          const results = await resolveReviewedRangesBatch(context, batch);
+          const failed = results.find(result => !result.range);
+          if (failed) {
+            throw new Error(failed.error ?? "تعذر التحقق من أحد مواضع الآيات؛ لم يُعدّل المستند.");
+          }
+          resolvedRanges.push(...results.map(result => result.range!));
         }
-        resolvedRanges.push(...results.map(result => result.range!));
+      } catch (error) {
+        // No document edits have been queued yet. Release ranges tracked by
+        // earlier successful batches before aborting the all-or-nothing apply.
+        for (const range of resolvedRanges) context.trackedObjects.remove(range);
+        if (resolvedRanges.length) await context.sync();
+        throw error;
       }
       const resolvedEntries: Array<typeof entries[number] & { range: WordRange; paragraphText: string }> =
         entries.map((entry, index) => ({
