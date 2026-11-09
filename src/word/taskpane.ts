@@ -66,7 +66,7 @@ function updateApplyButton(): void {
   const count = reviewItems.filter(item => item.decision === "approved").length;
   const button = byId<HTMLButtonElement>("applyButton");
   button.disabled = count === 0;
-  button.textContent = count ? `اعتماد ${count} موضع للمراجعة النهائية ←` : "اعتماد المحدد ←";
+  button.textContent = count ? `اعتماد ${count} وحدة للمراجعة النهائية ←` : "اعتماد المحدد ←";
 }
 function renderResults(): void {
   const root = byId<HTMLElement>("results");
@@ -382,7 +382,7 @@ async function inspectDocument(): Promise<void> {
         reviewItems.push(...scoped);
       }
       renderResults();
-      setStatus("اكتمل فحص المستند", `${paragraphs.items.length} فقرة · ${tables.items.length} جدول · ${reviewItems.length} نتيجة`, "اكتمل");
+      setStatus("اكتمل فحص المستند", `${paragraphs.items.length} فقرة · ${tables.items.length} جدول · ${reviewItems.length} وحدة مراجعة`, "اكتمل");
       if (!reviewItems.length) {
         byId("emptyState").querySelector("strong")!.textContent = "لم نعثر على اقتباسات";
         byId("emptyState").querySelector("p")!.textContent = "لم تظهر مطابقات وفق قواعد الفحص الحالية.";
@@ -557,8 +557,8 @@ async function applyApprovedReplacements(): Promise<void> {
       item.decision === "approved" ? { ...item, decision: "applied" } : item
     );
     renderResults();
-    setStatus("اكتمل الاستبدال", `تم تحويل ${approved.length} موضعًا بعد إعادة التحقق منها.`, "اكتمل");
-    toast(`اكتمل تحويل ${approved.length} موضعًا معتمدًا.`);
+    setStatus("اكتمل الاستبدال", `تم تحويل ${approved.length} وحدة معتمدة بعد إعادة التحقق منها.`, "اكتمل");
+    toast(`اكتمل تحويل ${approved.length} وحدة معتمدة.`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setStatus("أُلغي الاستبدال", message, "توقف");
