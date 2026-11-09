@@ -424,6 +424,11 @@ async function inspectDocument(): Promise<void> {
  * Build the exact reviewed range from Word's absolute character positions.
  * No Search API, anchors, or paragraph reconstruction are used.
  */
+/** Normalize Arabic search text while preserving Word's existing comparison policy. */
+function normalizeForWordRange(text: string): string {
+  return normalizeArabic(text).replace(/\\s+/gu, " ").trim();
+}
+
 function countAnchorOccurrencesBefore(text: string, anchor: string, offset: number): number {
   let count = 0;
   let cursor = 0;
