@@ -533,7 +533,7 @@ async function applyApprovedReplacements(): Promise<void> {
         const resolved = await resolveReviewedRange(
           context, paragraph, currentText, entry.start, entry.end
         );
-        resolvedEntries.push({ ...entry, range: resolved.range });
+        resolvedEntries.push({ ...entry, range: resolved.range, paragraphText: currentText });
       }
 
       const ordered = [...resolvedEntries].sort((a, b) =>
