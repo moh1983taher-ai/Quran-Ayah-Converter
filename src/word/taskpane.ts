@@ -580,6 +580,14 @@ Office.onReady(() => {
   byId<HTMLButtonElement>("scanBracketsButton").addEventListener("click", () => void inspectLegacyBrackets());
   byId<HTMLButtonElement>("applyBracketsButton").addEventListener("click", () => void applyLegacyBracketNormalization());
   byId<HTMLButtonElement>("cancelBracketsButton").addEventListener("click", cancelBracketPreview);
+  byId<HTMLButtonElement>("selectAll").addEventListener("click", () => {
+    const selectableIds = reviewItems
+      .filter(item => item.decision !== "applied" && item.status !== "ambiguous" && Boolean(item.replacementText.trim()))
+      .map(item => item.id);
+    reviewItems = setReviewDecision(reviewItems, selectableIds, "approved");
+    renderResults();
+    toast(`تم تحديد ${selectableIds.length} نتيجة قابلة للاعتماد. لم يُعدّل المستند.`);
+  });
   byId<HTMLButtonElement>("selectNone").addEventListener("click", () => {
     reviewItems = reviewItems.map(item => item.decision === "applied" ? item : ({ ...item, decision: "pending" }));
     renderResults();
