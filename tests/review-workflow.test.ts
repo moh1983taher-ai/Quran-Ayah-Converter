@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildApprovedReplacements,
   createReviewItems,
+  groupBracketedAyahMatches,
   setReviewDecision
 } from "../src/word/review-workflow.js";
 import type { AyahMatch } from "../src/core/types.js";
@@ -19,6 +20,50 @@ const match = (overrides: Partial<AyahMatch> = {}): AyahMatch => ({
 });
 
 describe("Word review workflow", () => {
+
+  it("groups consecutive ayahs inside one legacy outer pair and preserves separators", () => {
+    const source = "قبل آية أولى * آية ثانية، آية ثالثة [يوسف: 3] بعد";
+    const firstStart = source.indexOf("آية أولى");
+    const secondStart = source.indexOf("آية ثانية");
+    const thirdStart = source.indexOf("آية ثالثة");
+    const matches = [
+      match({ sourceStart: firstStart, sourceEnd: firstStart + "آية أولى".length, canonicalText: "النص الأول", references: [{ surah: 12, ayah: 1 }] }),
+      match({ sourceStart: secondStart, sourceEnd: secondStart + "آية ثانية".length, canonicalText: "النص الثاني", references: [{ surah: 12, ayah: 2 }] }),
+      match({ sourceStart: thirdStart, sourceEnd: thirdStart + "آية ثالثة".length, canonicalText: "النص الثالث", references: [{ surah: 12, ayah: 3 }] })
+    ];
+    const grouped = groupBracketedAyahMatches(source, matches);
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0]?.sourceStart).toBe(source.indexOf(""));
+    expect(grouped[0]?.sourceEnd).toBe(source.indexOf("") + 1);
+    expect(grouped[0]?.replacementText).toBe("النص الأول * النص الثاني، النص الثالث");
+    expect(grouped[0]?.references).toEqual([
+      { surah: 12, ayah: 1 }, { surah: 12, ayah: 2 }, { surah: 12, ayah: 3 }
+    ]);
+  });
+
+  it("does not group separate bracketed quotations in the same paragraph", () => {
+    const source = "﴿آية أولى﴾ ثم ﴿آية ثانية﴾";
+    const firstStart = source.indexOf("آية أولى");
+    const secondStart = source.indexOf("آية ثانية");
+    const matches = [
+      match({ sourceStart: firstStart, sourceEnd: firstStart + "آية أولى".length }),
+      match({ sourceStart: secondStart, sourceEnd: secondStart + "آية ثانية".length, references: [{ surah: 1, ayah: 2 }] })
+    ];
+    expect(groupBracketedAyahMatches(source, matches)).toHaveLength(2);
+  });
+
+  it("does not group ayahs separated by explanatory prose inside the outer pair", () => {
+    const source = "﴿آية أولى — شرح موجز — آية ثانية﴾";
+    const firstStart = source.indexOf("آية أولى");
+    const secondStart = source.indexOf("آية ثانية");
+    const matches = [
+      match({ sourceStart: firstStart, sourceEnd: firstStart + "آية أولى".length }),
+      match({ sourceStart: secondStart, sourceEnd: secondStart + "آية ثانية".length, references: [{ surah: 1, ayah: 2 }] })
+    ];
+    expect(groupBracketedAyahMatches(source, matches)).toHaveLength(2);
+  });
+
+
   it("creates review items with exact source text and stable identities", () => {
     const source = "قبل آية نص بعد";
     const start = source.indexOf("آية نص");
