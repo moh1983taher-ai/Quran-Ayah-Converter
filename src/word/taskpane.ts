@@ -69,6 +69,11 @@ interface ScanDiagnostics {
   detectedCount: number;
   rangeRequestCount: number;
   resolvedRangeCount: number;
+  detector?: {
+    detectCalls: number; bracketPassageCalls: number; bracketPassageMs: number;
+    exactPassageMs: number; fuzzyPassageMs: number; fuzzyCandidateRecords: number;
+    fuzzyAlignmentCalls: number; overlapResolutionMs: number;
+  };
 }
 function formatElapsed(milliseconds: number): string {
   if (!Number.isFinite(milliseconds) || milliseconds < 0) return "—";
@@ -82,7 +87,13 @@ function renderScanDiagnostics(metrics: ScanDiagnostics): void {
     ["قراءة المستند من Word", metrics.wordReadMs],
     ["كشف الآيات وتجهيز النتائج", metrics.detectionMs],
     ["تحديد مواضع الآيات داخل Word", metrics.rangeMs],
-    ["بناء بطاقات المراجعة وعرضها", metrics.renderMs]
+    ["بناء بطاقات المراجعة وعرضها", metrics.renderMs],
+    ...(metrics.detector ? [
+      ["المطابقة الدقيقة للمقاطع", metrics.detector.exactPassageMs],
+      ["المطابقة التقريبية", metrics.detector.fuzzyPassageMs],
+      ["مطابقة الاقتباسات المحاطة بأقواس", metrics.detector.bracketPassageMs],
+      ["معالجة تداخل النتائج", metrics.detector.overlapResolutionMs]
+    ] as Array<[string, number]> : [])
   ];
   const list = byId<HTMLElement>("scanDiagnosticsRows");
   list.replaceChildren();
@@ -437,6 +448,7 @@ async function inspectDocument(): Promise<void> {
         reviewItems.push(...scoped);
       }
       metrics.detectionMs = performance.now() - detectionStartedAt;
+      metrics.detector = detector.getDiagnostics();
       metrics.detectedCount = reviewItems.length;
       metrics.rangeRequestCount = pendingRangeRequests.length;
       const rangeStartedAt = performance.now();
