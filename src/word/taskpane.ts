@@ -1,7 +1,7 @@
 import { QuranAyahDetector } from "../core/detector.js";
 import { normalizeArabic } from "../core/normalizer.js";
 import { loadQuranDatasetJson } from "../core/dataset-loader.js";
-import { createReviewItems, setReviewDecision, type ReviewItem } from "./review-workflow.js";
+import { createReviewItems, groupBracketedAyahMatches, setReviewDecision, type ReviewItem } from "./review-workflow.js";
 import { ensureOrnamentalVerseBrackets } from "./verse-format.js";
 import { findLegacyBracketPairs, type MatchedBracketPair } from "./bracket-normalizer.js";
 
@@ -330,7 +330,9 @@ async function inspectDocument(): Promise<void> {
       for (let index = 0; index < paragraphs.items.length; index += 1) {
         const paragraph = paragraphs.items[index]!;
         const paragraphText = contentRanges[index]!.text;
-        const local = createReviewItems(paragraphText, detector.detect(paragraphText));
+        const detected = detector.detect(paragraphText);
+        const grouped = groupBracketedAyahMatches(paragraphText, detected);
+        const local = createReviewItems(paragraphText, grouped);
         const scoped = local.map(item => ({
           ...item,
           id: `p${index}:${item.id}`,
