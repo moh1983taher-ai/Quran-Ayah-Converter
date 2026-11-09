@@ -32,6 +32,27 @@ describe("Arabic normalization", () => {
     expect(source.slice(range!.start, range!.end)).toBe("قَا");
   });
 
+  it("includes all trailing Qur'anic marks in a mapped range without consuming separators", () => {
+    const source = "قَا\u06D6\u06E2، ثم";
+    const normalized = normalizeArabicWithMap(source);
+    const range = mapNormalizedRange(normalized, 0, normalized.value.indexOf("،"));
+
+    expect(range).toEqual({ start: 0, end: "قَا\u06D6\u06E2".length });
+    expect(source.slice(range!.start, range!.end)).toBe("قَا\u06D6\u06E2");
+    expect(source[range!.end]).toBe("،");
+  });
+
+  it("keeps trailing marks inside the final aligned Arabic token", () => {
+    const source = "وَمَن لَّمۡ يَحۡكُمِ ٱلظَّٰلِمُونَ۞ ثم";
+    const tokens = tokenizeArabic(source);
+    const lastToken = tokens[tokens.length - 1];
+
+    expect(lastToken).toBeDefined();
+    expect(source.slice(lastToken!.start, lastToken!.end)).toBe("ثم");
+    const target = tokens[tokens.length - 2]!;
+    expect(source.slice(target.start, target.end)).toBe("ٱلظَّٰلِمُونَ۞");
+  });
+
   it("rejects invalid normalized ranges", () => {
     const normalized = normalizeArabicWithMap("قرآن");
     expect(mapNormalizedRange(normalized, -1, 2)).toBeUndefined();
