@@ -21,6 +21,8 @@ export interface NormalizedText {
   value: string;
   sourceStart: number[];
   sourceEnd: number[];
+  /** Original string used to build the UTF-16 offset map. */
+  sourceText: string;
 }
 
 /** A verified or proposed match in the original document text. */
