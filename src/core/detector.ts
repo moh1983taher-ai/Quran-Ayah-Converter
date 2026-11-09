@@ -769,22 +769,44 @@ export class QuranAyahDetector {
       if (itemLength > existingLength && !existing.ambiguous) accepted[overlapIndex] = item;
     }
 
-    return accepted.map(item => ({
-      sourceStart: item.candidate.start,
-      sourceEnd: item.candidate.end,
-      references: item.references,
-      matchedText: text.slice(item.candidate.start, item.candidate.end),
-      canonicalText: item.ambiguous
+    return accepted.map(item => {
+      const matchedText = text.slice(item.candidate.start, item.candidate.end);
+      const canonicalText = item.ambiguous
         ? ""
-        : item.candidate.records.map(record => record.uthmani).join(" "),
-      ...(!item.ambiguous && item.candidate.replacementText !== undefined
-        ? { replacementText: item.candidate.replacementText }
-        : {}),
-      confidence: item.confidence,
-      evidence: item.evidence,
-      status: item.ambiguous ? "ambiguous" :
-        item.candidate.status
-    }));
+        : item.candidate.records.map(record => record.uthmani).join(" ");
+      // A multi-ayah candidate can also arrive from the broad passage matcher
+      // when a marked segment contains presentation symbols. Ensure that the
+      // review layer still receives one complete canonical replacement and
+      // retain the original verse separators in their source order.
+      let replacementText = item.candidate.replacementText;
+      if (!item.ambiguous && replacementText === undefined &&
+          item.candidate.records.length > 1) {
+        const separators = [...matchedText.matchAll(
+          /(?:\\s*(?:\\*|[۝۞][٠-٩0-9]*|[،؛,:])\\s*)+/gu
+        )].map(match => match[0]);
+        replacementText = item.candidate.records.map((record, index) => {
+          const separator = separators[index] ?? " ";
+          return record.uthmani + separator;
+        }).join("");
+        // Keep any remaining trailing verse markers/separators after the last ayah.
+        if (separators.length > item.candidate.records.length) {
+          replacementText += separators.slice(item.candidate.records.length).join("");
+        }
+      }
+
+      return {
+        sourceStart: item.candidate.start,
+        sourceEnd: item.candidate.end,
+        references: item.references,
+        matchedText,
+        canonicalText,
+        ...(replacementText !== undefined && !item.ambiguous ? { replacementText } : {}),
+        confidence: item.confidence,
+        evidence: item.evidence,
+        status: item.ambiguous ? "ambiguous" :
+          item.candidate.status
+      };
+    });
   }
 }
 
