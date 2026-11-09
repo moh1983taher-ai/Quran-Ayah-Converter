@@ -22,3 +22,15 @@
 
 /* Optional Quran citation control */
 .citation-option{margin:10px 0;padding:10px 12px;border:1px solid var(--line);border-radius:11px;background:#fff}.citation-check{align-items:flex-start}.citation-check span{display:grid;gap:3px}.citation-check strong{font-size:11px}.citation-check small{font-size:9px;line-height:1.7;color:var(--muted)}
+
+
+/* Per-scan performance diagnostics */
+.scan-diagnostics{margin:12px 0;padding:13px;border:1px solid var(--line);border-radius:13px;background:#fff}
+.diagnostics-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:9px}
+.diagnostics-heading h2{font-size:13px;margin:3px 0 0}
+.diagnostics-heading>strong{font-size:15px;color:var(--green);font-variant-numeric:tabular-nums}
+.diagnostic-rows{display:grid;gap:0}
+.diagnostic-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 0;border-top:1px solid #f0efe9;font-size:10px}
+.diagnostic-row strong{white-space:nowrap;color:var(--green);font-variant-numeric:tabular-nums}
+.diagnostics-summary{font-size:10px;line-height:1.8;color:var(--ink);margin:9px 0 0}
+.diagnostics-note{font-size:9px;line-height:1.7;color:var(--muted);margin:4px 0 0}
