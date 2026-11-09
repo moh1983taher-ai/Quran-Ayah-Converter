@@ -313,19 +313,19 @@ export class QuranAyahDetector {
     if (cursor < content.length) segments.push({ start: cursor, end: content.length });
     if (segments.length < 2) return this.matchPassage(content, records, true);
 
-    const resolved: Array<{
+    const segmentOptions: Array<Array<{
       start: number; end: number; record: QuranAyahRecord;
       replacementText: string; confidence: number; evidence: MatchEvidence[];
-    }> = [];
+    }>> = [];
     for (const segment of segments) {
       const raw = content.slice(segment.start, segment.end);
       const leading = raw.length - raw.trimStart().length;
       const text = raw.trim();
       if (!text) return [];
 
-      // Printed verse markers belong to the separator between ayahs, not to
-      // the searchable verse wording. Keep them in the source slice so the
-      // final replacement preserves their exact position and spelling.
+      // Keep printed verse markers in the source while excluding them from
+      // textual matching. A repeated short phrase can be disambiguated by
+      // the consecutive ayah context supplied by the remaining segments.
       const trailingMarker = /(\s*[۝۞]\s*[٠-٩0-9]+)\s*$/u.exec(text);
       const searchableText = trailingMarker
         ? text.slice(0, trailingMarker.index).trimEnd()
@@ -333,23 +333,39 @@ export class QuranAyahDetector {
       if (!searchableText) return [];
 
       const found = this.matchPassage(searchableText, records, true);
-      if (found.length !== 1 || found[0]!.records.length !== 1) return [];
+      if (found.length !== 1) return [];
       const item = found[0]!;
-      const record = item.records[0]!;
-      resolved.push({
+      const options = item.records.map(record => ({
         start: segment.start + leading + item.start,
         end: segment.start + leading + item.end,
         record,
         replacementText: item.replacementText ?? record.uthmani,
         confidence: item.confidence,
         evidence: item.evidence
-      });
+      }));
+      if (options.length === 0) return [];
+      segmentOptions.push(options);
     }
 
-    const first = resolved[0]!.record;
-    if (!resolved.every((item, index) =>
-      item.record.surah === first.surah && item.record.ayah === first.ayah + index
-    )) return [];
+    // Resolve repeated segments (notably the basmala) by requiring one
+    // uninterrupted sequence of references across the entire bracketed text.
+    const sequences = segmentOptions[0]!.filter(first =>
+      segmentOptions.every((options, index) =>
+        options.some(option =>
+          option.record.surah === first.record.surah &&
+          option.record.ayah === first.record.ayah + index
+        )
+      )
+    );
+    // Multiple valid sequences remain ambiguous and must not be guessed.
+    if (sequences.length !== 1) return [];
+    const first = sequences[0]!.record;
+    const resolved = segmentOptions.map((options, index) =>
+      options.find(option =>
+        option.record.surah === first.surah &&
+        option.record.ayah === first.ayah + index
+      )!
+    );
 
     let replacementText = content;
     for (const item of [...resolved].reverse()) {
