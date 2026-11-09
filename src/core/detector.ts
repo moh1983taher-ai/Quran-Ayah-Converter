@@ -145,10 +145,11 @@ export class QuranAyahDetector {
       (a, b) => a.surah - b.surah || a.ayah - b.ayah
     );
     this.records.forEach((record, position) => {
+      const imlaeiTokens = tokenizeArabic(record.imlaei);
       const prepared = {
         imlaeiNormalized: normalizeArabicWithMap(record.imlaei).value,
-        imlaeiTokens: tokenizeArabic(record.imlaei),
-        imlaeiTokenCounts: countTokenValues(tokenizeArabic(record.imlaei).map(token => token.value)),
+        imlaeiTokens,
+        imlaeiTokenCounts: countTokenValues(imlaeiTokens.map(token => token.value)),
         uthmaniNormalized: normalizeArabicWithMap(record.uthmani),
         uthmaniTokens: tokenizeArabic(record.uthmani)
       };
@@ -210,10 +211,11 @@ export class QuranAyahDetector {
     const cached = this.preparedRecords.get(record);
     if (cached) return cached;
     // Supports custom/dynamic QuranIndex implementations without weakening correctness.
+    const imlaeiTokens = tokenizeArabic(record.imlaei);
     const prepared = {
       imlaeiNormalized: normalizeArabicWithMap(record.imlaei).value,
-      imlaeiTokens: tokenizeArabic(record.imlaei),
-      imlaeiTokenCounts: countTokenValues(tokenizeArabic(record.imlaei).map(token => token.value)),
+      imlaeiTokens,
+      imlaeiTokenCounts: countTokenValues(imlaeiTokens.map(token => token.value)),
       uthmaniNormalized: normalizeArabicWithMap(record.uthmani),
       uthmaniTokens: tokenizeArabic(record.uthmani)
     };
