@@ -64,6 +64,14 @@ async function loadDataset() {
 }
 function updateApplyButton(): void {
   const count = reviewItems.filter(item => item.decision === "approved").length;
+  const selectableCount = reviewItems.filter(item =>
+    item.decision !== "applied" && item.status !== "ambiguous" && Boolean(item.replacementText.trim())
+  ).length;
+  const selectAllButton = byId<HTMLButtonElement>("selectAll");
+  selectAllButton.disabled = selectableCount === 0;
+  selectAllButton.textContent = selectableCount ? `تحديد الكل (${selectableCount})` : "تحديد الكل";
+  const selectNoneButton = byId<HTMLButtonElement>("selectNone");
+  selectNoneButton.disabled = !reviewItems.some(item => item.decision === "approved");
   const button = byId<HTMLButtonElement>("applyButton");
   button.disabled = count === 0;
   button.textContent = count ? `اعتماد ${count} وحدة للمراجعة النهائية ←` : "اعتماد المحدد ←";
