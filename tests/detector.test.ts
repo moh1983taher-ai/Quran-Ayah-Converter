@@ -59,6 +59,24 @@ describe("QuranAyahDetector", () => {
     }
   });
 
+  it("detects multi-ayah passages inside every supported legacy bracket pair as one match", () => {
+    const pairs = [
+      ["ﭽ", "ﭼ"], ["ﭿ", "ﭾ"], ["ﮁ", "ﮀ"], ["ﮃ", "ﮂ"],
+      ["ﮅ", "ﮄ"], ["ﮇ", "ﮆ"], ["ﮉ", "ﮈ"], ["ﮋ", "ﮊ"], ["ﵡ", "ﵠ"]
+    ] as const;
+    const passage = "بسم الله الرحمن الرحيم ۝١ * الحمد لله رب العالمين ۝٢";
+    for (const [open, close] of pairs) {
+      const text = `قبل ${open}${passage}${close} بعد`;
+      const matches = detector.detect(text);
+      expect(matches).toHaveLength(1);
+      expect(matches[0]?.references).toEqual([
+        { surah: 1, ayah: 1 },
+        { surah: 1, ayah: 2 }
+      ]);
+      expect(matches[0]?.matchedText).toBe(`${open}${passage}${close}`);
+    }
+  });
+
   it("detects an unmarked exact quotation", () => {
     const text = "ومن ذلك قوله تعالى بسم الله الرحمن الرحيم في افتتاح السورة.";
     const matches = detector.detect(text);
