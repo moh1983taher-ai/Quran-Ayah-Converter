@@ -18,4 +18,4 @@
 .secondary-button:disabled{opacity:.6;cursor:wait}
 
 /* Review selection controls */
-.selection-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.text-button:disabled{opacity:.45;cursor:not-allowed}
+.selection-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.selection-actions .text-button:disabled{opacity:.45;cursor:not-allowed}
