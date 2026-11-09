@@ -326,7 +326,7 @@ export class QuranAyahDetector {
       // Printed verse markers belong to the separator between ayahs, not to
       // the searchable verse wording. Keep them in the source slice so the
       // final replacement preserves their exact position and spelling.
-      const trailingMarker = /(\\s*[۝۞]\\s*[٠-٩0-9]+)\\s*$/u.exec(text);
+      const trailingMarker = /(\s*[۝۞]\s*[٠-٩0-9]+)\s*$/u.exec(text);
       const searchableText = trailingMarker
         ? text.slice(0, trailingMarker.index).trimEnd()
         : text;
