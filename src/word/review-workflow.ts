@@ -50,7 +50,7 @@ export function groupBracketedAyahMatches(
   // hand-maintained list. Arabic letters/numbers still block grouping, so
   // explanatory prose can never be absorbed into a passage.
   const separatorOnly = (value: string): boolean =>
-    /^[\\s\\p{M}\\p{P}\\p{S}\\u06DDـ٠-٩0-9]*$/u.test(value);
+    /^[\s\p{M}\p{P}\p{S}\u06DDـ٠-٩0-9]*$/u.test(value);
 
   const areConsecutiveAyahs = (items: readonly AyahMatch[]): boolean => {
     // This grouping path receives verse-sized detector results. A result that
