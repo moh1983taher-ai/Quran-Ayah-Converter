@@ -57,6 +57,12 @@ interface PassageMatch {
   replacementText?: string;
 }
 
+function countTokenValues(values: readonly string[]): ReadonlyMap<string, number> {
+  const counts = new Map<string, number>();
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+  return counts;
+}
+
 const DEFAULTS: Required<DetectorOptions> = {
   minimumUnmarkedLength: 14,
   maximumAyahsPerMatch: 8,
@@ -116,6 +122,7 @@ export class QuranAyahDetector {
   private readonly preparedRecords = new WeakMap<QuranAyahRecord, {
     imlaeiNormalized: string;
     imlaeiTokens: ReturnType<typeof tokenizeArabic>;
+    imlaeiTokenCounts: ReadonlyMap<string, number>;
     uthmaniNormalized: ReturnType<typeof normalizeArabicWithMap>;
     uthmaniTokens: ReturnType<typeof tokenizeArabic>;
   }>();
@@ -141,6 +148,7 @@ export class QuranAyahDetector {
       const prepared = {
         imlaeiNormalized: normalizeArabicWithMap(record.imlaei).value,
         imlaeiTokens: tokenizeArabic(record.imlaei),
+        imlaeiTokenCounts: countTokenValues(tokenizeArabic(record.imlaei).map(token => token.value)),
         uthmaniNormalized: normalizeArabicWithMap(record.uthmani),
         uthmaniTokens: tokenizeArabic(record.uthmani)
       };
@@ -205,6 +213,7 @@ export class QuranAyahDetector {
     const prepared = {
       imlaeiNormalized: normalizeArabicWithMap(record.imlaei).value,
       imlaeiTokens: tokenizeArabic(record.imlaei),
+      imlaeiTokenCounts: countTokenValues(tokenizeArabic(record.imlaei).map(token => token.value)),
       uthmaniNormalized: normalizeArabicWithMap(record.uthmani),
       uthmaniTokens: tokenizeArabic(record.uthmani)
     };
@@ -397,7 +406,8 @@ export class QuranAyahDetector {
     this.diagnostics.fuzzyCandidateRecords += candidateRecords.length;
     const fuzzyStartedAt = performance.now();
     for (const record of candidateRecords) {
-      const canonicalTokens = this.prepared(record).imlaeiTokens.map(token => token.value);
+      const preparedRecord = this.prepared(record);
+      const canonicalTokens = preparedRecord.imlaeiTokens.map(token => token.value);
       // Bracketed short fragments are handled by exact contiguous matching above.
       // Fuzzy alignment needs at least four words to avoid generic false positives.
       const minimumTokens = allowShort ? 4 : 5;
@@ -416,11 +426,7 @@ export class QuranAyahDetector {
         canonicalTokens.length - maxDistance
       );
       let possibleExactTokens = 0;
-      const canonicalCounts = new Map<string, number>();
-      for (const token of canonicalTokens) {
-        canonicalCounts.set(token, (canonicalCounts.get(token) ?? 0) + 1);
-      }
-      for (const [token, required] of canonicalCounts) {
+      for (const [token, required] of preparedRecord.imlaeiTokenCounts) {
         possibleExactTokens += Math.min(required, sourceTokenCounts.get(token) ?? 0);
       }
       if (possibleExactTokens < requiredExactTokens) continue;
