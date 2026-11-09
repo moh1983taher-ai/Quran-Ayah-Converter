@@ -57,6 +57,47 @@ const setStatus = (title: string, detail: string, tag: string): void => {
   byId("statusTag").textContent = tag;
 };
 
+/**
+ * Report real scan work completed. The counter is stage-specific: paragraphs
+ * during detection and individual ranges during Word range resolution.
+ */
+function updateScanProgress(
+  phase: string,
+  completed: number,
+  total: number,
+  detail?: string
+): void {
+  const panel = byId<HTMLElement>("scanProgress");
+  const bar = byId<HTMLElement>("scanProgressBar");
+  const phaseNode = byId<HTMLElement>("scanProgressPhase");
+  const countNode = byId<HTMLElement>("scanProgressCount");
+  const remainingNode = byId<HTMLElement>("scanProgressRemaining");
+  const percentNode = byId<HTMLElement>("scanProgressPercent");
+  const safeTotal = Math.max(0, total);
+  const safeCompleted = Math.min(Math.max(0, completed), safeTotal);
+  const percent = safeTotal ? Math.round((safeCompleted / safeTotal) * 100) : 0;
+  panel.hidden = false;
+  phaseNode.textContent = phase;
+  countNode.textContent = safeTotal
+    ? `${safeCompleted.toLocaleString("ar")} من ${safeTotal.toLocaleString("ar")}`
+    : (detail ?? "جارٍ التحضير…");
+  remainingNode.textContent = safeTotal
+    ? `المتبقي: ${(safeTotal - safeCompleted).toLocaleString("ar")}`
+    : "";
+  percentNode.textContent = safeTotal ? `${percent.toLocaleString("ar")}٪` : "…";
+  bar.style.width = `${percent}%`;
+  bar.setAttribute("aria-valuenow", String(percent));
+  bar.setAttribute("aria-valuetext", safeTotal
+    ? `${percent} بالمئة، أُنجز ${safeCompleted} من ${safeTotal}`
+    : phase);
+  panel.classList.toggle("is-indeterminate", safeTotal === 0);
+}
+
+/** Yield to the task pane so progress updates can paint during long scans. */
+function yieldToUi(): Promise<void> {
+  return new Promise(resolve => window.setTimeout(resolve, 0));
+}
+
 interface ScanDiagnostics {
   totalMs: number;
   datasetMs: number;
@@ -385,6 +426,7 @@ async function inspectDocument(): Promise<void> {
   const button = byId<HTMLButtonElement>("scanButton");
   button.disabled = true;
   button.textContent = "جارٍ فحص المستند…";
+  updateScanProgress("تحميل قاعدة المصحف", 0, 0, "التحقق من بيانات حفص قبل البحث");
   setStatus("جارٍ تحميل قاعدة المصحف", "التحقق من بيانات حفص قبل البحث", "يفحص");
   try {
     const datasetStartedAt = performance.now();
@@ -392,6 +434,7 @@ async function inspectDocument(): Promise<void> {
     datasetPromise ??= loadDataset();
     const loaded = await datasetPromise;
     metrics.datasetMs = performance.now() - datasetStartedAt;
+    updateScanProgress("قراءة المستند من Word", 0, 0, "جارٍ قراءة الفقرات والجداول");
     await Word.run(async context => {
       const wordReadStartedAt = performance.now();
       const paragraphs = context.document.body.paragraphs.load("items");
@@ -405,6 +448,7 @@ async function inspectDocument(): Promise<void> {
       metrics.characterCount = contentRanges.reduce((sum, range) => sum + range.text.length, 0);
       const detectionStartedAt = performance.now();
       const detector = new QuranAyahDetector(loaded.index);
+      updateScanProgress("كشف الآيات في فقرات المستند", 0, paragraphs.items.length);
       reviewItems = [];
       itemRanges.clear();
       const pendingRangeRequests: Array<{ item: ReviewItem; stored: StoredReviewedRange; paragraph: WordParagraph; snapshot: string }> = [];
@@ -450,12 +494,17 @@ async function inspectDocument(): Promise<void> {
           pendingRangeRequests.push({ item, stored, paragraph, snapshot: paragraphText });
         }
         reviewItems.push(...scoped);
+        // Update only after a paragraph has been fully processed.
+        updateScanProgress("كشف الآيات في فقرات المستند", index + 1, paragraphs.items.length);
+        // Let the browser paint the counter before the next CPU-heavy paragraph.
+        await yieldToUi();
       }
       metrics.detectionMs = performance.now() - detectionStartedAt;
       metrics.detector = detector.getDiagnostics();
       metrics.detectedCount = reviewItems.length;
       metrics.rangeRequestCount = pendingRangeRequests.length;
       const rangeStartedAt = performance.now();
+      updateScanProgress("تثبيت مواضع الآيات داخل Word", 0, pendingRangeRequests.length);
       // Word search calls are queued in bounded batches; Office.js performs
       // only a small number of sync round-trips per batch, not per quotation.
       const scanBatchSize = 60;
@@ -478,6 +527,12 @@ async function inspectDocument(): Promise<void> {
             });
           }
         });
+        updateScanProgress(
+          "تثبيت مواضع الآيات داخل Word",
+          Math.min(offset + batch.length, pendingRangeRequests.length),
+          pendingRangeRequests.length
+        );
+        await yieldToUi();
       }
       metrics.rangeMs = performance.now() - rangeStartedAt;
       metrics.resolvedRangeCount = pendingRangeRequests.filter(entry => Boolean(entry.stored.range)).length;
@@ -485,6 +540,7 @@ async function inspectDocument(): Promise<void> {
       const renderStartedAt = performance.now();
       renderResults();
       metrics.renderMs = performance.now() - renderStartedAt;
+      updateScanProgress("اكتمل فحص المستند", 1, 1);
       setStatus("اكتمل فحص المستند", `${paragraphs.items.length} فقرة · ${tables.items.length} جدول · ${reviewItems.length} وحدة مراجعة`, "اكتمل");
       if (!reviewItems.length) {
         byId("emptyState").querySelector("strong")!.textContent = "لم نعثر على اقتباسات";
@@ -494,6 +550,7 @@ async function inspectDocument(): Promise<void> {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    updateScanProgress("توقف الفحص", 0, 0, message);
     setStatus("تعذر إكمال الفحص", message, "توقف");
     toast(message);
   } finally {
