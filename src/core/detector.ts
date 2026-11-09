@@ -300,7 +300,7 @@ export class QuranAyahDetector {
     content: string,
     records: readonly QuranAyahRecord[]
   ): PassageMatch[] {
-    const boundaries = [...content.matchAll(/(?:\s*(?:\*|[۝۞][٠-٩0-9]*)\s*)+/gu)];
+    const boundaries = [...content.matchAll(/(?:\s*(?:\*|[۝۞][٠-٩0-9]*|[،؛,:])\s*)+/gu)];
     if (!boundaries.length) return this.matchPassage(content, records, true);
 
     const segments: Array<{ start: number; end: number }> = [];
