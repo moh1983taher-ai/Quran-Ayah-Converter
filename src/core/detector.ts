@@ -723,7 +723,17 @@ export class QuranAyahDetector {
           identity: candidate.records.map(record => record.id).join("+")
         }));
       const resolution = resolveAyahIdentity(identityCandidates, 0.065);
-      const winner = resolution?.winner ?? identityCandidates[0]!;
+      const selectedWinner = resolution?.winner ?? identityCandidates[0]!;
+      // Identity resolution may select an equivalent candidate produced by a
+      // secondary detector pass. Prefer the same identity's enriched bracket
+      // candidate when it carries the passage-level replacement that preserves
+      // the original verse markers and separators.
+      const winner = selectedWinner.replacementText !== undefined
+        ? selectedWinner
+        : identityCandidates.find(candidate =>
+            candidate.identity === selectedWinner.identity &&
+            candidate.replacementText !== undefined
+          ) ?? selectedWinner;
       const competing = resolution?.competing ?? [];
       const repeatedExactExcerpt =
         winner.records.length > 1 &&
