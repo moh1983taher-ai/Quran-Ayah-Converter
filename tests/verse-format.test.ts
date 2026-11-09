@@ -8,7 +8,7 @@ describe("Word Qur'anic verse formatting", () => {
 
     expect(formatted).toBe("﴿" + verse + "﴾");
     expect(formatted).toContain("تَشۡكُرُونَ");
-    expect(formatted.endsWith("\u064E ﴾")).toBe(true);
+    expect(formatted.endsWith("\u064E﴾")).toBe(true);
   });
 
   it("normalizes an existing bracket pair without duplicating it or losing the final mark", () => {
