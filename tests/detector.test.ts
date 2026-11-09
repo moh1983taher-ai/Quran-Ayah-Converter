@@ -348,6 +348,20 @@ describe("QuranAyahDetector", () => {
     expect(matches[0]?.canonicalText).toBe("");
   });
 
+  it("exposes cumulative stage diagnostics without changing detection results", () => {
+    const measuredDetector = new QuranAyahDetector(new InMemoryQuranIndex(records));
+    const matches = measuredDetector.detect("قال تعالى: بسم الله الرحمن الرحيم.");
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.references).toEqual([{ surah: 1, ayah: 1 }]);
+    const diagnostics = measuredDetector.getDiagnostics();
+    expect(diagnostics.detectCalls).toBe(1);
+    expect(diagnostics.fuzzyCandidateRecords).toBeGreaterThanOrEqual(0);
+    expect(diagnostics.fuzzyAlignmentCalls).toBeGreaterThanOrEqual(0);
+    expect(diagnostics.exactPassageMs).toBeGreaterThanOrEqual(0);
+    expect(diagnostics.fuzzyPassageMs).toBeGreaterThanOrEqual(0);
+    expect(diagnostics.overlapResolutionMs).toBeGreaterThanOrEqual(0);
+  });
+
   it("does not create a match for unrelated text", () => {
     expect(detector.detect("هذا نص عربي عادي لا يتضمن اقتباسا قرآنيا.")).toHaveLength(0);
   });
