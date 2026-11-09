@@ -5,8 +5,8 @@ const OUTER_BRACKET_PAIRS: ReadonlyArray<readonly [string, string]> = [
 
 /**
  * Formats a reviewed verse for Word insertion.
- * A thin space after a final Arabic combining mark separates it visually
- * from the closing bracket without removing or rewriting the mark.
+ * A regular space separates the verse text from the closing bracket.
+ * The Quranic text itself is preserved exactly, including all combining marks.
  */
 export function ensureOrnamentalVerseBrackets(text: string): string {
   let verse = text.trim();
@@ -18,6 +18,6 @@ export function ensureOrnamentalVerseBrackets(text: string): string {
     }
   }
 
-  const separator = /\p{M}$/u.test(verse) ? "\u2009" : "";
+  const separator = " ";
   return "﴿" + verse + separator + "﴾";
 }
