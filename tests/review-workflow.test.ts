@@ -41,6 +41,42 @@ describe("Word review workflow", () => {
     ]);
   });
 
+
+  it("creates one review item and one approved replacement for a consecutive multi-ayah passage", () => {
+    const source = "قبل آية أولى ۝١ * آية ثانية ۝٢ * آية ثالثة ۝٣ [1-3] بعد";
+    const spans = ["آية أولى", "آية ثانية", "آية ثالثة"].map(value => {
+      const start = source.indexOf(value);
+      return { start, end: start + value.length };
+    });
+    const matches = spans.map((span, index) => match({
+      sourceStart: span.start,
+      sourceEnd: span.end,
+      canonicalText: `النص العثماني ${index + 1}`,
+      references: [{ surah: 12, ayah: 23 + index }]
+    }));
+    const grouped = groupBracketedAyahMatches(source, matches);
+    const items = createReviewItems(source, grouped);
+
+    expect(items).toHaveLength(1);
+    expect(items[0]?.originalText).toBe("آية أولى ۝١ * آية ثانية ۝٢ * آية ثالثة ۝٣");
+    expect(items[0]?.replacementText).toBe("النص العثماني 1 ۝١ * النص العثماني 2 ۝٢ * النص العثماني 3 ۝٣");
+    const approved = setReviewDecision(items, [items[0]!.id], "approved");
+    const replacements = buildApprovedReplacements(approved);
+    expect(replacements).toHaveLength(1);
+    expect(replacements[0]?.expectedOriginalText).toBe(items[0]?.originalText);
+  });
+
+  it("does not combine non-consecutive ayahs merely because they share one outer quote", () => {
+    const source = "آية أولى * آية ثالثة";
+    const firstStart = source.indexOf("آية أولى");
+    const secondStart = source.indexOf("آية ثالثة");
+    const matches = [
+      match({ sourceStart: firstStart, sourceEnd: firstStart + "آية أولى".length, references: [{ surah: 12, ayah: 1 }] }),
+      match({ sourceStart: secondStart, sourceEnd: secondStart + "آية ثالثة".length, references: [{ surah: 12, ayah: 3 }] })
+    ];
+    expect(groupBracketedAyahMatches(source, matches)).toHaveLength(2);
+  });
+
   it("does not group separate bracketed quotations in the same paragraph", () => {
     const source = "﴿آية أولى﴾ ثم ﴿آية ثانية﴾";
     const firstStart = source.indexOf("آية أولى");
