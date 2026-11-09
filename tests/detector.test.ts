@@ -90,6 +90,17 @@ describe("QuranAyahDetector", () => {
     expect(matches[0]?.replacementText).toContain("۝٢");
   });
 
+  it("keeps Arabic punctuation between consecutive ayahs inside the same passage", () => {
+    const text = "قال تعالى ﴿بسم الله الرحمن الرحيم، الحمد لله رب العالمين﴾";
+    const matches = detector.detect(text);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.references).toEqual([
+      { surah: 1, ayah: 1 },
+      { surah: 1, ayah: 2 }
+    ]);
+    expect(matches[0]?.matchedText).toBe("﴿بسم الله الرحمن الرحيم، الحمد لله رب العالمين﴾");
+  });
+
   it("detects an unmarked exact quotation", () => {
     const text = "ومن ذلك قوله تعالى بسم الله الرحمن الرحيم في افتتاح السورة.";
     const matches = detector.detect(text);
