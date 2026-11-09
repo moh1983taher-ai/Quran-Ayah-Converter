@@ -16,6 +16,107 @@ export interface ReviewItem {
   decision: ReviewDecision;
 }
 
+
+/**
+ * Combines separately detected ayahs only when they form one uninterrupted
+ * quotation enclosed by a single outer bracket pair. Text between ayahs is
+ * retained verbatim; prose inside the bracket prevents grouping.
+ */
+export function groupBracketedAyahMatches(
+  sourceText: string,
+  matches: readonly AyahMatch[]
+): AyahMatch[] {
+  const ordered = [...matches].sort((a, b) =>
+    a.sourceStart - b.sourceStart || a.sourceEnd - b.sourceEnd
+  );
+  const consumed = new Set<AyahMatch>();
+  const grouped: AyahMatch[] = [];
+  const bracketPairs: ReadonlyArray<readonly [string, string]> = [
+    ["﴿", "﴾"],
+    ["", ""]
+  ];
+  const separatorOnly = (value: string): boolean =>
+    /^[\s*،؛,:.\-–—ـ۞۝۩|]*$/u.test(value);
+
+  for (const [opening, closing] of bracketPairs) {
+    let cursor = 0;
+    while (cursor < sourceText.length) {
+      const openAt = sourceText.indexOf(opening, cursor);
+      if (openAt < 0) break;
+      const closeAt = sourceText.indexOf(closing, openAt + opening.length);
+      if (closeAt < 0) break;
+      cursor = closeAt + closing.length;
+
+      const inside = ordered.filter(match =>
+        !consumed.has(match) &&
+        match.sourceStart >= openAt + opening.length &&
+        match.sourceEnd <= closeAt &&
+        match.sourceEnd > match.sourceStart
+      );
+      if (inside.length < 2) continue;
+
+      const first = inside[0]!;
+      const last = inside[inside.length - 1]!;
+      const contentStart = openAt + opening.length;
+      const content = sourceText.slice(contentStart, closeAt);
+      let previousEnd = contentStart;
+      let valid = separatorOnly(sourceText.slice(contentStart, first.sourceStart));
+      for (const match of inside) {
+        if (match.status === "ambiguous" ||
+            !(match.replacementText ?? match.canonicalText).trim() ||
+            match.sourceStart < previousEnd ||
+            !separatorOnly(sourceText.slice(previousEnd, match.sourceStart))) {
+          valid = false;
+          break;
+        }
+        previousEnd = match.sourceEnd;
+      }
+      valid = valid && separatorOnly(sourceText.slice(last.sourceEnd, closeAt));
+      if (!valid) continue;
+
+      let replacementBody = content;
+      for (const match of [...inside].reverse()) {
+        const localStart = match.sourceStart - contentStart;
+        const localEnd = match.sourceEnd - contentStart;
+        replacementBody =
+          replacementBody.slice(0, localStart) +
+          (match.replacementText ?? match.canonicalText) +
+          replacementBody.slice(localEnd);
+      }
+
+      const references = inside.flatMap(match => match.references);
+      const uniqueReferences = references.filter((reference, index) =>
+        references.findIndex(candidate =>
+          candidate.surah === reference.surah && candidate.ayah === reference.ayah
+        ) === index
+      );
+      const evidence = inside.flatMap(match => match.evidence);
+      evidence.push({
+        type: "context",
+        detail: "آيات متعددة داخل اقتباس واحد؛ حُفظت الفواصل الأصلية ووُحّدت الأقواس الخارجية"
+      });
+
+      grouped.push({
+        sourceStart: openAt,
+        sourceEnd: closeAt + closing.length,
+        matchedText: sourceText.slice(openAt, closeAt + closing.length),
+        canonicalText: replacementBody,
+        replacementText: replacementBody,
+        references: uniqueReferences,
+        confidence: Math.min(...inside.map(match => match.confidence)),
+        evidence,
+        status: inside.every(match => match.status === "high-confidence")
+          ? "high-confidence"
+          : "needs-review"
+      });
+      inside.forEach(match => consumed.add(match));
+    }
+  }
+
+  return [...ordered.filter(match => !consumed.has(match)), ...grouped]
+    .sort((a, b) => a.sourceStart - b.sourceStart);
+}
+
 /** Converts detector output into stable, reviewable items without mutating Word. */
 export function createReviewItems(
   sourceText: string,
