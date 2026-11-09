@@ -762,8 +762,22 @@ export class QuranAyahDetector {
       // they do not make that passage ambiguous. Ambiguity is about competing
       // identities for the same source span, not the number of ayahs in one
       // already-resolved sequence.
-      const ambiguous = !repeatedExactExcerpt &&
-        (resolution?.ambiguous ?? false);
+      const isVerifiedConsecutivePassage = winner.records.length > 1 &&
+        winner.records.every((record, index, records) => {
+          if (index === 0) return true;
+          const previous = records[index - 1]!;
+          return record.surah === previous.surah &&
+            record.ayah === previous.ayah + 1;
+        });
+      // A single detector candidate can itself contain several possible
+      // locations for a short excerpt. The identity resolver cannot detect
+      // that ambiguity because it sees only one candidate object. Preserve it
+      // unless those records form one verified consecutive passage or the
+      // excerpt is textually identical at every repeated location.
+      const ambiguous = !repeatedExactExcerpt && (
+        (resolution?.ambiguous ?? false) ||
+        (winner.records.length > 1 && !isVerifiedConsecutivePassage)
+      );
       const references = ambiguous || repeatedExactExcerpt
         ? uniqueReferences([winner, ...competing].flatMap(item => item.records))
         : winner.records.map(({ surah, ayah }) => ({ surah, ayah }));
