@@ -3,6 +3,7 @@ import { normalizeArabic } from "../core/normalizer.js";
 import { loadQuranDatasetJson } from "../core/dataset-loader.js";
 import { createReviewItems, setReviewDecision, type ReviewItem } from "./review-workflow.js";
 import { ensureOrnamentalVerseBrackets } from "./verse-format.js";
+import { findLegacyBracketPairs, type MatchedBracketPair } from "./bracket-normalizer.js";
 
 
 declare const Office: {
@@ -137,6 +138,157 @@ async function releaseReviewedRanges(): Promise<void> {
     });
   }
   itemRanges.clear();
+}
+
+
+interface BracketParagraphSnapshot {
+  paragraphIndex: number;
+  text: string;
+  pairs: MatchedBracketPair[];
+}
+let bracketSnapshots: BracketParagraphSnapshot[] = [];
+
+function cancelBracketPreview(): void {
+  bracketSnapshots = [];
+  byId<HTMLElement>("bracketPreview").hidden = true;
+  byId<HTMLButtonElement>("applyBracketsButton").disabled = true;
+}
+
+async function inspectLegacyBrackets(): Promise<void> {
+  const scanButton = byId<HTMLButtonElement>("scanBracketsButton");
+  scanButton.disabled = true;
+  scanButton.textContent = "جارٍ فحص الأقواس…";
+  cancelBracketPreview();
+  setStatus("جارٍ فحص الأقواس", "قراءة فقرات المستند دون إجراء أي تعديل", "يفحص");
+  try {
+    await Word.run(async context => {
+      const paragraphs = context.document.body.paragraphs.load("items");
+      await context.sync();
+      const ranges = paragraphs.items.map(paragraph => paragraph.getRange("Content").load("text"));
+      await context.sync();
+
+      bracketSnapshots = [];
+      let pairCount = 0;
+      let unmatchedCount = 0;
+      for (let index = 0; index < ranges.length; index += 1) {
+        const paragraphText = ranges[index]!.text;
+        const result = findLegacyBracketPairs(paragraphText);
+        if (result.pairs.length) {
+          bracketSnapshots.push({
+            paragraphIndex: index,
+            text: paragraphText,
+            pairs: result.pairs
+          });
+          pairCount += result.pairs.length;
+        }
+        unmatchedCount += result.unmatchedSymbolCount;
+      }
+
+      byId("bracketPairCount").textContent = String(pairCount);
+      byId("bracketUnmatchedCount").textContent = String(unmatchedCount);
+      byId("bracketPreviewText").textContent = pairCount
+        ? "لم يتغير المستند. راجع العدد ثم اختر التوحيد لتنفيذ التعديلات."
+        : "لم يُعثر على أزواج قديمة متطابقة؛ لم يُجرَ أي تعديل.";
+      byId<HTMLElement>("bracketPreview").hidden = false;
+      byId<HTMLButtonElement>("applyBracketsButton").disabled = pairCount === 0;
+      setStatus(
+        pairCount ? "اكتمل فحص الأقواس" : "لا توجد أقواس تحتاج إلى توحيد",
+        `${pairCount} زوجًا متطابقًا · ${unmatchedCount} رمزًا غير مكتمل`,
+        "اكتمل"
+      );
+      toast(pairCount
+        ? `عُثر على ${pairCount} زوج متطابق. المستند لم يتغير.`
+        : "لم يُعثر على أزواج أقواس قديمة متطابقة.");
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setStatus("تعذر فحص الأقواس", message, "توقف");
+    toast(message);
+    cancelBracketPreview();
+  } finally {
+    scanButton.disabled = false;
+    scanButton.textContent = "فحص الأقواس";
+  }
+}
+
+function countExactSymbolOccurrencesBefore(text: string, symbol: string, offset: number): number {
+  let count = 0;
+  let cursor = 0;
+  while (cursor < offset) {
+    const found = text.indexOf(symbol, cursor);
+    if (found < 0 || found >= offset) break;
+    count += 1;
+    cursor = found + symbol.length;
+  }
+  return count;
+}
+
+async function applyLegacyBracketNormalization(): Promise<void> {
+  if (!bracketSnapshots.length) return;
+  const button = byId<HTMLButtonElement>("applyBracketsButton");
+  button.disabled = true;
+  byId<HTMLButtonElement>("scanBracketsButton").disabled = true;
+  setStatus("جارٍ توحيد الأقواس", "إعادة التحقق من النص قبل تطبيق التغييرات", "ينفّذ");
+
+  try {
+    const totalPairs = bracketSnapshots.reduce((sum, item) => sum + item.pairs.length, 0);
+    await Word.run(async context => {
+      const paragraphs = context.document.body.paragraphs.load("items");
+      await context.sync();
+
+      for (const snapshot of bracketSnapshots) {
+        const paragraph = paragraphs.items[snapshot.paragraphIndex];
+        if (!paragraph) {
+          throw new Error("تغيرت بنية المستند بعد المعاينة؛ أُلغي توحيد الأقواس.");
+        }
+        const liveRange = paragraph.getRange("Content").load("text");
+        await context.sync();
+        if (liveRange.text !== snapshot.text) {
+          throw new Error("تغير نص إحدى الفقرات بعد المعاينة؛ أُلغي التنفيذ حمايةً للمستند.");
+        }
+
+        const replacements = snapshot.pairs.flatMap(pair => [
+          { offset: pair.openingOffset, symbol: pair.opening, replacement: "﴿" },
+          { offset: pair.closingOffset, symbol: pair.closing, replacement: "﴾" }
+        ]).sort((a, b) => b.offset - a.offset);
+
+        // Resolve each single-character symbol exactly. Applying from right to
+        // left keeps all earlier offsets valid and changes no surrounding text.
+        for (const replacement of replacements) {
+          const occurrence = countExactSymbolOccurrencesBefore(
+            snapshot.text, replacement.symbol, replacement.offset
+          );
+          const matches = paragraph.getRange("Content")
+            .search(replacement.symbol, { matchCase: true, matchWholeWord: false })
+            .load("items");
+          await context.sync();
+          for (const candidate of matches.items) candidate.load("text");
+          await context.sync();
+
+          const exactMatches = matches.items.filter(candidate => candidate.text === replacement.symbol);
+          const target = exactMatches[occurrence];
+          if (!target) {
+            throw new Error("تعذر تحديد أحد رموز الأقواس تطابقًا حرفيًا؛ أُلغي التنفيذ.");
+          }
+          target.insertText(replacement.replacement, "Replace");
+        }
+      }
+      await context.sync();
+    });
+
+    cancelBracketPreview();
+    setStatus("اكتمل توحيد الأقواس", `تم توحيد ${totalPairs} زوجًا إلى ﴿ ﴾.`, "اكتمل");
+    toast(`تم توحيد ${totalPairs} زوجًا. بقي النص والتشكيل كما هما.`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setStatus("أُلغي توحيد الأقواس", message, "توقف");
+    toast(message);
+    // Keep the preview so the user can inspect it or cancel; a fresh scan is
+    // required before retrying because the live document may have changed.
+    button.disabled = true;
+  } finally {
+    byId<HTMLButtonElement>("scanBracketsButton").disabled = false;
+  }
 }
 
 async function inspectDocument(): Promise<void> {
@@ -398,6 +550,9 @@ async function applyApprovedReplacements(): Promise<void> {
 }
 Office.onReady(() => {
   byId<HTMLButtonElement>("scanButton").addEventListener("click", () => void inspectDocument());
+  byId<HTMLButtonElement>("scanBracketsButton").addEventListener("click", () => void inspectLegacyBrackets());
+  byId<HTMLButtonElement>("applyBracketsButton").addEventListener("click", () => void applyLegacyBracketNormalization());
+  byId<HTMLButtonElement>("cancelBracketsButton").addEventListener("click", cancelBracketPreview);
   byId<HTMLButtonElement>("selectNone").addEventListener("click", () => {
     reviewItems = reviewItems.map(item => item.decision === "applied" ? item : ({ ...item, decision: "pending" }));
     renderResults();
