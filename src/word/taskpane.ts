@@ -485,8 +485,8 @@ async function resolveReviewedRange(
     await context.sync();
   }
 
-  exactRange.load("text");
-  await context.sync();
+  // Short exact matches already loaded candidate text in the search batch above;
+  // avoid issuing a second load/sync for the same Word.Range proxy.
   if (normalizeForWordRange(exactRange.text) !== normalizeForWordRange(expected)) {
     throw new Error("موضع Word لا يطابق نص الآية الذي تمت مراجعته.");
   }
