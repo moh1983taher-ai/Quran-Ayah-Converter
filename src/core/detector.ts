@@ -9,6 +9,17 @@ import { mapNormalizedRange, normalizeArabicWithMap } from "./normalizer.js";
 import { findFuzzyTokenAlignments, prepareFuzzySource, tokenizeArabic } from "./alignment.js";
 import { resolveAyahIdentity } from "./identity-resolver.js";
 
+export interface DetectorDiagnostics {
+  detectCalls: number;
+  bracketPassageCalls: number;
+  bracketPassageMs: number;
+  exactPassageMs: number;
+  fuzzyPassageMs: number;
+  fuzzyCandidateRecords: number;
+  fuzzyAlignmentCalls: number;
+  overlapResolutionMs: number;
+}
+
 export interface DetectorOptions {
   /** Minimum number of normalized Arabic letters in an unmarked quotation. */
   minimumUnmarkedLength?: number;
@@ -111,6 +122,15 @@ export class QuranAyahDetector {
   /** Inverted token index shared by every paragraph in this document scan. */
   private readonly recordsByToken = new Map<string, Set<QuranAyahRecord>>();
   private readonly recordPositions = new Map<QuranAyahRecord, number>();
+  private readonly diagnostics: DetectorDiagnostics = {
+    detectCalls: 0, bracketPassageCalls: 0, bracketPassageMs: 0,
+    exactPassageMs: 0, fuzzyPassageMs: 0, fuzzyCandidateRecords: 0,
+    fuzzyAlignmentCalls: 0, overlapResolutionMs: 0
+  };
+
+  getDiagnostics(): DetectorDiagnostics {
+    return { ...this.diagnostics };
+  }
 
   constructor(private readonly index: QuranIndex, options: DetectorOptions = {}) {
     this.options = { ...DEFAULTS, ...options };
@@ -194,6 +214,7 @@ export class QuranAyahDetector {
 
   detect(text: string): AyahMatch[] {
     if (!text.trim() || this.index.size === 0) return [];
+    this.diagnostics.detectCalls += 1;
 
     const normalized = normalizeArabicWithMap(text);
     const records = this.records;
@@ -242,7 +263,10 @@ export class QuranAyahDetector {
         const contentStart = start + open.length;
         const contentEnd = endMarker;
         const content = text.slice(contentStart, contentEnd);
+        const bracketStartedAt = performance.now();
         const matches = this.matchBracketedPassage(content, records);
+        this.diagnostics.bracketPassageMs += performance.now() - bracketStartedAt;
+        this.diagnostics.bracketPassageCalls += 1;
         for (const match of matches) {
           // When the matched quotation occupies the complete bracket content,
           // include the existing ornamental delimiters in the replacement range.
@@ -288,7 +312,10 @@ export class QuranAyahDetector {
       });
     }
 
-    return this.resolveOverlaps(candidates, text);
+    const overlapStartedAt = performance.now();
+    const resolved = this.resolveOverlaps(candidates, text);
+    this.diagnostics.overlapResolutionMs += performance.now() - overlapStartedAt;
+    return resolved;
   }
 
   private matchAllPassages(
@@ -309,6 +336,7 @@ export class QuranAyahDetector {
         );
       });
 
+    const exactStartedAt = performance.now();
     for (const startRecord of possibleStarts) {
       const i = this.recordPositions.get(startRecord) ?? records.indexOf(startRecord);
       if (i < 0) continue;
@@ -347,6 +375,7 @@ export class QuranAyahDetector {
       }
     }
 
+    this.diagnostics.exactPassageMs += performance.now() - exactStartedAt;
     output.push(...this.findFuzzyMatches(source, records, false));
     return output;
   }
@@ -362,6 +391,8 @@ export class QuranAyahDetector {
       preparedSource.tokens.map(token => token.value)
     );
 
+    this.diagnostics.fuzzyCandidateRecords += candidateRecords.length;
+    const fuzzyStartedAt = performance.now();
     for (const record of candidateRecords) {
       const canonicalTokens = this.prepared(record).imlaeiTokens.map(token => token.value);
       // Bracketed short fragments are handled by exact contiguous matching above.
@@ -370,6 +401,7 @@ export class QuranAyahDetector {
       if (canonicalTokens.length < minimumTokens) continue;
 
       const maxDistance = canonicalTokens.length >= 9 ? 2 : 1;
+      this.diagnostics.fuzzyAlignmentCalls += 1;
       const alignments = findFuzzyTokenAlignments(preparedSource, canonicalTokens, {
         maxDistance,
         minimumTokens
@@ -391,6 +423,7 @@ export class QuranAyahDetector {
       });
     }
 
+    this.diagnostics.fuzzyPassageMs += performance.now() - fuzzyStartedAt;
     return matches;
   }
 
