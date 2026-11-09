@@ -34,3 +34,16 @@
 .diagnostic-row strong{white-space:nowrap;color:var(--green);font-variant-numeric:tabular-nums}
 .diagnostics-summary{font-size:10px;line-height:1.8;color:var(--ink);margin:9px 0 0}
 .diagnostics-note{font-size:9px;line-height:1.7;color:var(--muted);margin:4px 0 0}
+
+
+/* Live scan progress */
+.scan-progress{margin:10px 0;padding:12px 13px;border:1px solid var(--line);border-radius:12px;background:#fff}
+.scan-progress[hidden]{display:none}
+.scan-progress-heading,.scan-progress-meta{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.scan-progress-heading{font-size:11px;color:var(--green)}
+.scan-progress-heading strong:last-child{font-variant-numeric:tabular-nums}
+.scan-progress-track{height:7px;margin:9px 0 7px;border-radius:20px;background:#edf0eb;overflow:hidden}
+.scan-progress-track span{display:block;width:0;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--green2),var(--gold));transition:width .16s ease}
+.scan-progress-meta{font-size:10px;color:var(--muted)}
+.scan-progress.is-indeterminate .scan-progress-track span{width:34%;animation:scan-progress-indeterminate 1.25s ease-in-out infinite alternate}
+@keyframes scan-progress-indeterminate{from{transform:translateX(0)}to{transform:translateX(190%)}}
