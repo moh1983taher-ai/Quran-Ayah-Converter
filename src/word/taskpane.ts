@@ -110,6 +110,10 @@ function renderScanDiagnostics(metrics: ScanDiagnostics): void {
   byId("scanDiagnosticsTotal").textContent = formatElapsed(metrics.totalMs);
   byId("scanDiagnosticsSummary").textContent =
     `${metrics.paragraphCount.toLocaleString("ar")} فقرة · ${metrics.characterCount.toLocaleString("ar")} محرف · ${metrics.detectedCount.toLocaleString("ar")} نتيجة · ${metrics.resolvedRangeCount.toLocaleString("ar")} موضعًا ثُبّت من أصل ${metrics.rangeRequestCount.toLocaleString("ar")} طلب`;
+  if (metrics.detector) {
+    byId<HTMLElement>("scanDiagnosticsSummary").textContent +=
+      ` · مرشحو التقريب: ${metrics.detector.fuzzyCandidateRecords.toLocaleString("ar")} · محاذاة منفذة: ${metrics.detector.fuzzyAlignmentCalls.toLocaleString("ar")}`;
+  }
   root.hidden = false;
 }
 async function loadDataset() {
