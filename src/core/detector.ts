@@ -387,9 +387,12 @@ export class QuranAyahDetector {
   ): Array<{ start: number; end: number; records: QuranAyahRecord[]; evidence: MatchEvidence[]; confidence: number }> {
     const matches: Array<{ start: number; end: number; records: QuranAyahRecord[]; evidence: MatchEvidence[]; confidence: number }> = [];
     const preparedSource = prepareFuzzySource(source);
-    const candidateRecords = this.candidateRecordsForAnyToken(
-      preparedSource.tokens.map(token => token.value)
-    );
+    const sourceTokenValues = preparedSource.tokens.map(token => token.value);
+    const candidateRecords = this.candidateRecordsForAnyToken(sourceTokenValues);
+    const sourceTokenCounts = new Map<string, number>();
+    for (const token of sourceTokenValues) {
+      sourceTokenCounts.set(token, (sourceTokenCounts.get(token) ?? 0) + 1);
+    }
 
     this.diagnostics.fuzzyCandidateRecords += candidateRecords.length;
     const fuzzyStartedAt = performance.now();
@@ -401,6 +404,33 @@ export class QuranAyahDetector {
       if (canonicalTokens.length < minimumTokens) continue;
 
       const maxDistance = canonicalTokens.length >= 9 ? 2 : 1;
+
+      // A Levenshtein alignment within maxDistance must contain at least
+      // canonicalLength - maxDistance exact token pairs. The multiset overlap
+      // with the whole source is an upper bound on those pairs, so candidates
+      // below that bound cannot possibly pass alignment and can be discarded
+      // without changing recall. Count duplicates on both sides: repeated
+      // Arabic words must not be treated as unlimited matches.
+      const requiredExactTokens = Math.max(
+        minimumTokens - maxDistance,
+        canonicalTokens.length - maxDistance
+      );
+      let possibleExactTokens = 0;
+      for (const token of canonicalTokens) {
+        const available = sourceTokenCounts.get(token) ?? 0;
+        if (available > 0) {
+          possibleExactTokens += 1;
+          sourceTokenCounts.set(token, available - 1);
+        }
+      }
+      // Restore source counts for the next record. This local counter avoids
+      // allocating a second map for every candidate.
+      for (const token of canonicalTokens) {
+        const remaining = sourceTokenCounts.get(token);
+        if (remaining !== undefined) sourceTokenCounts.set(token, remaining + 1);
+      }
+      if (possibleExactTokens < requiredExactTokens) continue;
+
       this.diagnostics.fuzzyAlignmentCalls += 1;
       const alignments = findFuzzyTokenAlignments(preparedSource, canonicalTokens, {
         maxDistance,
