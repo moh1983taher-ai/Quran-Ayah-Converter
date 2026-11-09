@@ -56,6 +56,51 @@ const setStatus = (title: string, detail: string, tag: string): void => {
   byId("statusText").textContent = detail;
   byId("statusTag").textContent = tag;
 };
+
+interface ScanDiagnostics {
+  totalMs: number;
+  datasetMs: number;
+  wordReadMs: number;
+  detectionMs: number;
+  rangeMs: number;
+  renderMs: number;
+  paragraphCount: number;
+  characterCount: number;
+  detectedCount: number;
+  rangeRequestCount: number;
+  resolvedRangeCount: number;
+}
+function formatElapsed(milliseconds: number): string {
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) return "—";
+  if (milliseconds < 1000) return `${Math.round(milliseconds)} مللي ثانية`;
+  return `${(milliseconds / 1000).toFixed(2)} ثانية`;
+}
+function renderScanDiagnostics(metrics: ScanDiagnostics): void {
+  const root = byId<HTMLElement>("scanDiagnostics");
+  const values: Array<[string, number]> = [
+    ["تحميل قاعدة المصحف وتجهيزها", metrics.datasetMs],
+    ["قراءة المستند من Word", metrics.wordReadMs],
+    ["كشف الآيات وتجهيز النتائج", metrics.detectionMs],
+    ["تحديد مواضع الآيات داخل Word", metrics.rangeMs],
+    ["بناء بطاقات المراجعة وعرضها", metrics.renderMs]
+  ];
+  const list = byId<HTMLElement>("scanDiagnosticsRows");
+  list.replaceChildren();
+  for (const [label, duration] of values) {
+    const row = document.createElement("div");
+    row.className = "diagnostic-row";
+    const name = document.createElement("span");
+    name.textContent = label;
+    const time = document.createElement("strong");
+    time.textContent = formatElapsed(duration);
+    row.append(name, time);
+    list.append(row);
+  }
+  byId("scanDiagnosticsTotal").textContent = formatElapsed(metrics.totalMs);
+  byId("scanDiagnosticsSummary").textContent =
+    `${metrics.paragraphCount.toLocaleString("ar")} فقرة · ${metrics.characterCount.toLocaleString("ar")} محرف · ${metrics.detectedCount.toLocaleString("ar")} نتيجة · ${metrics.resolvedRangeCount.toLocaleString("ar")} موضعًا ثُبّت من أصل ${metrics.rangeRequestCount.toLocaleString("ar")} طلب`;
+  root.hidden = false;
+}
 async function loadDataset() {
   const response = await fetch("./data/quran-hafs.json", { cache: "no-store" });
   if (!response.ok) throw new Error("قاعدة المصحف غير موجودة في حزمة الإضافة بعد.");
@@ -316,21 +361,34 @@ async function applyLegacyBracketNormalization(): Promise<void> {
 }
 
 async function inspectDocument(): Promise<void> {
+  const scanStartedAt = performance.now();
+  const metrics: ScanDiagnostics = {
+    totalMs: 0, datasetMs: 0, wordReadMs: 0, detectionMs: 0,
+    rangeMs: 0, renderMs: 0, paragraphCount: 0, characterCount: 0,
+    detectedCount: 0, rangeRequestCount: 0, resolvedRangeCount: 0
+  };
   const button = byId<HTMLButtonElement>("scanButton");
   button.disabled = true;
   button.textContent = "جارٍ فحص المستند…";
   setStatus("جارٍ تحميل قاعدة المصحف", "التحقق من بيانات حفص قبل البحث", "يفحص");
   try {
+    const datasetStartedAt = performance.now();
     await releaseReviewedRanges();
     datasetPromise ??= loadDataset();
     const loaded = await datasetPromise;
+    metrics.datasetMs = performance.now() - datasetStartedAt;
     await Word.run(async context => {
+      const wordReadStartedAt = performance.now();
       const paragraphs = context.document.body.paragraphs.load("items");
       const tables = context.document.body.tables.load("items");
       await context.sync();
       // Capture the actual editable content range, excluding the paragraph mark.
       const contentRanges = paragraphs.items.map(paragraph => paragraph.getRange("Content").load("text"));
       await context.sync();
+      metrics.wordReadMs = performance.now() - wordReadStartedAt;
+      metrics.paragraphCount = paragraphs.items.length;
+      metrics.characterCount = contentRanges.reduce((sum, range) => sum + range.text.length, 0);
+      const detectionStartedAt = performance.now();
       const detector = new QuranAyahDetector(loaded.index);
       reviewItems = [];
       itemRanges.clear();
@@ -378,6 +436,10 @@ async function inspectDocument(): Promise<void> {
         }
         reviewItems.push(...scoped);
       }
+      metrics.detectionMs = performance.now() - detectionStartedAt;
+      metrics.detectedCount = reviewItems.length;
+      metrics.rangeRequestCount = pendingRangeRequests.length;
+      const rangeStartedAt = performance.now();
       // Word search calls are queued in bounded batches; Office.js performs
       // only a small number of sync round-trips per batch, not per quotation.
       const scanBatchSize = 60;
@@ -401,8 +463,12 @@ async function inspectDocument(): Promise<void> {
           }
         });
       }
+      metrics.rangeMs = performance.now() - rangeStartedAt;
+      metrics.resolvedRangeCount = pendingRangeRequests.filter(entry => Boolean(entry.stored.range)).length;
 
+      const renderStartedAt = performance.now();
       renderResults();
+      metrics.renderMs = performance.now() - renderStartedAt;
       setStatus("اكتمل فحص المستند", `${paragraphs.items.length} فقرة · ${tables.items.length} جدول · ${reviewItems.length} وحدة مراجعة`, "اكتمل");
       if (!reviewItems.length) {
         byId("emptyState").querySelector("strong")!.textContent = "لم نعثر على اقتباسات";
@@ -415,6 +481,8 @@ async function inspectDocument(): Promise<void> {
     setStatus("تعذر إكمال الفحص", message, "توقف");
     toast(message);
   } finally {
+    metrics.totalMs = performance.now() - scanStartedAt;
+    renderScanDiagnostics(metrics);
     button.disabled = false;
     button.innerHTML = "<span>⌕</span> فحص المستند";
   }
