@@ -66,6 +66,53 @@ describe("Word review workflow", () => {
     expect(replacements[0]?.expectedOriginalText).toBe(items[0]?.originalText);
   });
 
+  it("groups one passage when Qur'anic pause signs occur between consecutive ayahs", () => {
+    const source = "قبل ﴿آية أولى ۖ ۝١ آية ثانية ۗ ۝٢﴾ بعد";
+    const firstStart = source.indexOf("آية أولى");
+    const secondStart = source.indexOf("آية ثانية");
+    const matches = [
+      match({
+        sourceStart: firstStart,
+        sourceEnd: firstStart + "آية أولى".length,
+        canonicalText: "النص الأول",
+        references: [{ surah: 12, ayah: 1 }]
+      }),
+      match({
+        sourceStart: secondStart,
+        sourceEnd: secondStart + "آية ثانية".length,
+        canonicalText: "النص الثاني",
+        references: [{ surah: 12, ayah: 2 }]
+      })
+    ];
+
+    const grouped = groupBracketedAyahMatches(source, matches);
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0]?.matchedText).toBe("﴿آية أولى ۖ ۝١ آية ثانية ۗ ۝٢﴾");
+    expect(grouped[0]?.replacementText).toBe("النص الأول ۖ ۝١ النص الثاني ۗ ۝٢");
+    const items = createReviewItems(source, grouped);
+    expect(items).toHaveLength(1);
+    expect(items[0]?.originalText).toBe("﴿آية أولى ۖ ۝١ آية ثانية ۗ ۝٢﴾");
+  });
+
+  it("does not group neighboring matches when one already has multiple references", () => {
+    const source = "﴿مقتطف أول * آية ثانية﴾";
+    const firstStart = source.indexOf("مقتطف أول");
+    const secondStart = source.indexOf("آية ثانية");
+    const matches = [
+      match({
+        sourceStart: firstStart,
+        sourceEnd: firstStart + "مقتطف أول".length,
+        references: [{ surah: 12, ayah: 1 }, { surah: 13, ayah: 1 }]
+      }),
+      match({
+        sourceStart: secondStart,
+        sourceEnd: secondStart + "آية ثانية".length,
+        references: [{ surah: 12, ayah: 2 }]
+      })
+    ];
+    expect(groupBracketedAyahMatches(source, matches)).toHaveLength(2);
+  });
+
   it("does not combine non-consecutive ayahs merely because they share one outer quote", () => {
     const source = "آية أولى * آية ثالثة";
     const firstStart = source.indexOf("آية أولى");
