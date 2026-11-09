@@ -33,10 +33,31 @@ export function groupBracketedAyahMatches(
   const grouped: AyahMatch[] = [];
   const bracketPairs: ReadonlyArray<readonly [string, string]> = [
     ["﴿", "﴾"],
-    ["", ""]
+    ["", ""],
+    ["ﭽ", "ﭼ"],
+    ["ﭿ", "ﭾ"],
+    ["ﮁ", "ﮀ"],
+    ["ﮃ", "ﮂ"],
+    ["ﮅ", "ﮄ"],
+    ["ﮇ", "ﮆ"],
+    ["ﮉ", "ﮈ"],
+    ["ﮋ", "ﮊ"],
+    ["ﵡ", "ﵠ"]
   ];
+  // Separators and printed ayah markers are internal to one quoted passage.
+  // Arabic/Western digits are admitted only as standalone markers, never as
+  // arbitrary prose; words between matches still prevent grouping.
   const separatorOnly = (value: string): boolean =>
-    /^[\s*،؛,:.\-–—ـ۞۝۩|]*$/u.test(value);
+    /^[\s*،؛,:.\-–—ـ۞۝۩|٠-٩0-9۞۝۩ۣ۟۠ۡۢۤۥۦۧۨ۩۪ۭ۫۬۞۝]*$/u.test(value);
+
+  const areConsecutiveAyahs = (items: readonly AyahMatch[]): boolean => {
+    const refs = items.map(item => item.references.length === 1 ? item.references[0] : undefined);
+    if (refs.some(reference => !reference)) return true;
+    const first = refs[0]!;
+    return refs.every((reference, index) =>
+      reference!.surah === first!.surah && reference!.ayah === first!.ayah + index
+    );
+  };
 
   for (const [opening, closing] of bracketPairs) {
     let cursor = 0;
@@ -71,7 +92,9 @@ export function groupBracketedAyahMatches(
         }
         previousEnd = match.sourceEnd;
       }
-      valid = valid && separatorOnly(sourceText.slice(last.sourceEnd, closeAt));
+      valid = valid &&
+        separatorOnly(sourceText.slice(last.sourceEnd, closeAt)) &&
+        areConsecutiveAyahs(inside);
       if (!valid) continue;
 
       let replacementBody = content;
