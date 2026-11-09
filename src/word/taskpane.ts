@@ -69,6 +69,8 @@ function updateScanProgress(
 ): void {
   const panel = byId<HTMLElement>("scanProgress");
   const bar = byId<HTMLElement>("scanProgressBar");
+  const fill = bar.querySelector<HTMLElement>("span");
+  if (!fill) throw new Error("Missing scan progress fill element.");
   const phaseNode = byId<HTMLElement>("scanProgressPhase");
   const countNode = byId<HTMLElement>("scanProgressCount");
   const remainingNode = byId<HTMLElement>("scanProgressRemaining");
@@ -85,7 +87,7 @@ function updateScanProgress(
     ? `المتبقي: ${(safeTotal - safeCompleted).toLocaleString("ar")}`
     : "";
   percentNode.textContent = safeTotal ? `${percent.toLocaleString("ar")}٪` : "…";
-  bar.style.width = `${percent}%`;
+  fill.style.width = `${percent}%`;
   bar.setAttribute("aria-valuenow", String(percent));
   bar.setAttribute("aria-valuetext", safeTotal
     ? `${percent} بالمئة، أُنجز ${safeCompleted} من ${safeTotal}`
