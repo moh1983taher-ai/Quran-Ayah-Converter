@@ -19,3 +19,6 @@
 
 /* Review selection controls */
 .selection-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.selection-actions .text-button:disabled{opacity:.45;cursor:not-allowed}
+
+/* Optional Quran citation control */
+.citation-option{margin:10px 0;padding:10px 12px;border:1px solid var(--line);border-radius:11px;background:#fff}.citation-check{align-items:flex-start}.citation-check span{display:grid;gap:3px}.citation-check strong{font-size:11px}.citation-check small{font-size:9px;line-height:1.7;color:var(--muted)}
