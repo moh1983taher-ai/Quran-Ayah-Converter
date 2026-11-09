@@ -14,7 +14,7 @@ describe("Word Qur'anic verse formatting", () => {
   it("normalizes an existing bracket pair without duplicating it or losing the final mark", () => {
     const verse = "﴿وَلَعَلَّكُمۡ تَشۡكُرُونَ﴾";
     expect(ensureOrnamentalVerseBrackets(verse))
-      .toBe("﴿وَلَعَلَّكُمۡ تَشۡكُرُونَ\u2009﴾");
+      .toBe("﴿وَلَعَلَّكُمۡ تَشۡكُرُونَ ﴾");
   });
 
   it("adds a separator when the verse has no trailing combining mark", () => {
@@ -24,6 +24,6 @@ describe("Word Qur'anic verse formatting", () => {
 
   it("replaces legacy delimiters with one canonical ornamental pair", () => {
     expect(ensureOrnamentalVerseBrackets("تَشْكُرُونَ"))
-      .toBe("﴿تَشْكُرُونَ\u2009﴾");
+      .toBe("﴿تَشْكُرُونَ ﴾");
   });
 });
