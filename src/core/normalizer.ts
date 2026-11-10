@@ -3,11 +3,16 @@ import type { NormalizedText } from "./types.js";
 const TATWEEL = "\u0640";
 const ARABIC_DIACRITICS = /[\p{M}\u06D6-\u06ED]/u;
 const FORMAT_CONTROLS = /\p{Cf}/u;
+// Qur'anic superscript letters used as orthographic annotations, not independent word letters.
+const QURANIC_SMALL_LETTERS = /[\u06E5\u06E6]/u;
 const ALEF_VARIANTS: Record<string, string> = {
   "أ": "ا",
   "إ": "ا",
   "آ": "ا",
-  "ٱ": "ا"
+  "ٱ": "ا",
+  // Normalize hamza-seat variants while preserving the hamza itself.
+  "ؤ": "ء",
+  "ئ": "ء"
 };
 
 /**
@@ -35,6 +40,7 @@ export function normalizeArabicWithMap(input: string): NormalizedText {
       if (
         compatibleCharacter === TATWEEL ||
         ARABIC_DIACRITICS.test(compatibleCharacter) ||
+        QURANIC_SMALL_LETTERS.test(compatibleCharacter) ||
         FORMAT_CONTROLS.test(compatibleCharacter)
       ) {
         continue;
@@ -88,7 +94,7 @@ export function mapNormalizedRange(
     const codePoint = String.fromCodePoint(
       normalized.sourceText.codePointAt(sourceEnd)!
     );
-    if (!ARABIC_DIACRITICS.test(codePoint)) break;
+    if (!ARABIC_DIACRITICS.test(codePoint) && !QURANIC_SMALL_LETTERS.test(codePoint)) break;
     sourceEnd += codePoint.length;
   }
 
