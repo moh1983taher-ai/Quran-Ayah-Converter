@@ -15,6 +15,25 @@ describe("Arabic normalization", () => {
     expect(normalizeArabic("إِلَىٰ أَنْ")).toBe("الي ان");
   });
 
+  it("normalizes dagger alif as ordinary alif across Uthmani words", () => {
+    expect(normalizeArabic("حَلَٰلٗا")).toBe("حلالا");
+    expect(normalizeArabic("إِلَٰه")).toBe("اله");
+  });
+
+  it("preserves source mapping when dagger alif expands to an ordinary alif", () => {
+    const source = "حَلَٰلٗا";
+    const normalized = normalizeArabicWithMap(source);
+    const range = mapNormalizedRange(normalized, 0, normalized.value.length);
+
+    expect(normalized.value).toBe("حلالا");
+    expect(range).toEqual({ start: 0, end: source.length });
+    expect(source.slice(range!.start, range!.end)).toBe(source);
+  });
+
+  it("does not convert small waw or small ya to alif", () => {
+    expect(normalizeArabic("ۥۦ")).toBe("");
+  });
+
   it("normalizes Arabic presentation ligatures and removes invisible format controls", () => {
     expect(normalizeArabic("ﷲ لَا\u200Dه")).toBe("الله لاه");
   });
