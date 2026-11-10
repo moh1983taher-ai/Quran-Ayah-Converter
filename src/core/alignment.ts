@@ -37,6 +37,11 @@ export function tokenizeNormalized(normalized: NormalizedText): AlignmentToken[]
     const mapped = mapNormalizedRange(normalized, start, end);
     if (!mapped) continue;
 
+    // Uthmani orthography may omit the alif after waw al-jama'ah
+    // (e.g. source "فباؤوا" versus canonical "فباءو"). Treat that
+    // final alif as a spelling convention at token level, not as a
+    // character-level fuzzy substitution. Source offsets remain untouched.
+    const tokenValue = match[0].replace(/ءوا$/u, "ءو");
     const previous = tokens[tokens.length - 1];
     if (
       previous?.value === "يا" &&
@@ -46,13 +51,13 @@ export function tokenizeNormalized(normalized: NormalizedText): AlignmentToken[]
       // token: "يا آدم"/"ياآدم" and "يا أيها"/"ياأيها".
       // Normalize the common written variants "يا آدم"/"ياآدم"
       // and "يا أيها"/"ياأيها" to the same vocative token.
-      previous.value += match[0].startsWith("ا") ? match[0].slice(1) : match[0];
+      previous.value += tokenValue.startsWith("ا") ? tokenValue.slice(1) : tokenValue;
       previous.end = mapped.end;
     } else {
       // In joined vocatives, alef normalization can leave a doubled alef
       // after "يا" (ياآدم -> ياادم). Collapse that one orthographic boundary
       // so it is identical to the already-supported spaced form (يا آدم).
-      const value = match[0].replace(/^ياا(?=.)/u, "يا");
+      const value = tokenValue.replace(/^ياا(?=.)/u, "يا");
       tokens.push({ value, start: mapped.start, end: mapped.end });
     }
   }
