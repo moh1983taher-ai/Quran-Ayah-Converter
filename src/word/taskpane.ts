@@ -194,6 +194,8 @@ function setApplyProgress(step: number, stage: string, detail: string): void {
   applyFeedbackState = "running";
   const button = byId<HTMLButtonElement>("applyButton");
   button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  button.classList.remove("is-complete", "is-failed");
   setApplyButtonDisplay(`${step}/5 · ${stage}`, detail, `${stage}: ${detail}`);
   setStatus(stage, detail, "ينفّذ");
 }
@@ -214,16 +216,24 @@ function updateApplyButton(): void {
   }
   if (applyFeedbackState === "completed") {
     button.disabled = count === 0;
+    button.removeAttribute("aria-busy");
+    button.classList.add("is-complete");
+    button.classList.remove("is-failed");
     setApplyButtonDisplay("✓ اكتمل الاعتماد", applyFeedbackSummary, applyFeedbackSummary);
     return;
   }
   if (applyFeedbackState === "failed") {
     button.disabled = count === 0;
+    button.removeAttribute("aria-busy");
+    button.classList.add("is-failed");
+    button.classList.remove("is-complete");
     setApplyButtonDisplay("تعذر إكمال الاعتماد", "راجع رسالة الحالة ثم أعد المحاولة", applyFeedbackError);
     return;
   }
 
   button.disabled = count === 0;
+  button.removeAttribute("aria-busy");
+  button.classList.remove("is-complete", "is-failed");
   setApplyButtonDisplay(
     count ? `اعتماد ${count} وحدة` : "اعتماد المحدد",
     count ? "سيُعاد التحقق قبل تعديل المستند" : "اختر النتائج التي تريد اعتمادها",
