@@ -1,10 +1,12 @@
 import type { NormalizedText } from "./types.js";
-import { mapNormalizedRange, normalizeArabicWithMap } from "./normalizer.js";
+import { mapNormalizedRange, normalizeArabic, normalizeArabicWithMap } from "./normalizer.js";
 
 export interface AlignmentToken {
   value: string;
   start: number;
   end: number;
+  /** Orthographic alternatives, used only when an exact token form matches. */
+  alternatives?: readonly string[];
 }
 
 export interface TokenAlignment {
@@ -42,12 +44,17 @@ export function tokenizeNormalized(normalized: NormalizedText): AlignmentToken[]
     // final alif as a spelling convention at token level, not as a
     // character-level fuzzy substitution. Source offsets remain untouched.
     const sourceToken = normalized.sourceText.slice(mapped.start, mapped.end);
-    // In the Uthmani form حَلَٰلٗا, the dagger alif represents the
-    // ordinary alif in the imlaei spelling حَلَالًا. Keep this narrow
-    // equivalence here; dagger alif is not an alif in every Qur'anic word.
-    const tokenValue = sourceToken.includes("ٰ") && match[0] === "حللا"
-      ? "حلالا"
-      : match[0].replace(/ءوا$/u, "ءو");
+    const tokenValue = match[0].replace(/ءوا$/u, "ءو");
+    // A dagger alif can correspond to an ordinary alif in some spellings,
+    // but not all (e.g. الرحمن and إلىٰ). Keep the unexpanded token as the
+    // primary form and expose expanded forms as exact-match alternatives.
+    // This lets the counterpart text decide which spelling is appropriate.
+    const daggerAlifPositions = [...sourceToken.matchAll(/ٰ/gu)].map(item =>
+      normalizeArabic(sourceToken.slice(0, item.index ?? 0)).length
+    );
+    const tokenAlternatives = [...new Set(daggerAlifPositions.map(position =>
+      tokenValue.slice(0, position) + "ا" + tokenValue.slice(position)
+    ))].filter(value => value !== tokenValue);
     const previous = tokens[tokens.length - 1];
     if (
       previous?.value === "يا" &&
@@ -64,7 +71,8 @@ export function tokenizeNormalized(normalized: NormalizedText): AlignmentToken[]
       // after "يا" (ياآدم -> ياادم). Collapse that one orthographic boundary
       // so it is identical to the already-supported spaced form (يا آدم).
       const value = tokenValue.replace(/^ياا(?=.)/u, "يا");
-      tokens.push({ value, start: mapped.start, end: mapped.end });
+      const alternatives = tokenAlternatives.map(item => item.replace(/^ياا(?=.)/u, "يا"));
+      tokens.push({ value, start: mapped.start, end: mapped.end, alternatives });
     }
   }
   return tokens;
@@ -77,9 +85,11 @@ export function prepareFuzzySource(source: string): PreparedFuzzySource {
   const positions = new Map<string, number[]>();
 
   tokens.forEach((token, index) => {
-    const bucket = positions.get(token.value) ?? [];
-    bucket.push(index);
-    positions.set(token.value, bucket);
+    for (const value of [token.value, ...(token.alternatives ?? [])]) {
+      const bucket = positions.get(value) ?? [];
+      bucket.push(index);
+      positions.set(value, bucket);
+    }
   });
 
   return { normalized, tokens, positions };
@@ -108,9 +118,20 @@ function differsByOneInsertedCharacter(left: string, right: string): boolean {
 
 /** Levenshtein alignment over word tokens. */
 export function alignTokenSequence(
-  canonicalTokens: readonly string[],
+  canonicalTokens: readonly (string | AlignmentToken)[],
   sourceTokens: readonly AlignmentToken[]
 ): Omit<TokenAlignment, "sourceStart" | "sourceEnd" | "sourceTokenCount"> {
+  const canonicalValues = canonicalTokens.map(token =>
+    typeof token === "string" ? token : token.value
+  );
+  const matches = (canonical: string | AlignmentToken, source: AlignmentToken | undefined) => {
+    if (!source) return false;
+    const canonicalForms = typeof canonical === "string"
+      ? [canonical]
+      : [canonical.value, ...(canonical.alternatives ?? [])];
+    const sourceForms = [source.value, ...(source.alternatives ?? [])];
+    return canonicalForms.some(value => sourceForms.includes(value));
+  };
   const rows = canonicalTokens.length + 1;
   const columns = sourceTokens.length + 1;
   const matrix: number[][] = Array.from({ length: rows }, () =>
@@ -123,9 +144,12 @@ export function alignTokenSequence(
   let matchedTokens = 0;
   for (let i = 1; i < rows; i += 1) {
     for (let j = 1; j < columns; j += 1) {
-      const equal = canonicalTokens[i - 1] === sourceTokens[j - 1]?.value;
+      const canonical = canonicalTokens[i - 1]!;
+      const sourceToken = sourceTokens[j - 1]!;
+      const equal = matches(canonical, sourceToken);
+      const canonicalValue = typeof canonical === "string" ? canonical : canonical.value;
       const tokenInsertionDeletion = !equal &&
-        differsByOneInsertedCharacter(canonicalTokens[i - 1]!, sourceTokens[j - 1]!.value);
+        differsByOneInsertedCharacter(canonicalValue, sourceToken.value);
       matrix[i]![j] = Math.min(
         matrix[i - 1]![j]! + 1,
         matrix[i]![j - 1]! + 1,
@@ -139,7 +163,7 @@ export function alignTokenSequence(
   while (i > 0 && j > 0) {
     const current = matrix[i]![j]!;
     const diagonal = matrix[i - 1]![j - 1]!;
-    if (current === diagonal && canonicalTokens[i - 1] === sourceTokens[j - 1]?.value) {
+    if (current === diagonal && matches(canonicalTokens[i - 1]!, sourceTokens[j - 1])) {
       matchedTokens += 1;
       i -= 1;
       j -= 1;
@@ -166,8 +190,8 @@ export function findFuzzyTokenAlignments(
 ): TokenAlignment[] {
   const prepared = typeof source === "string" ? prepareFuzzySource(source) : source;
   const sourceTokens = prepared.tokens;
-  const canonicalTokens = typeof canonicalText === "string"
-    ? tokenizeArabic(canonicalText).map(token => token.value)
+  const canonicalTokens: (string | AlignmentToken)[] = typeof canonicalText === "string"
+    ? tokenizeArabic(canonicalText)
     : [...canonicalText];
   const minimumTokens = options.minimumTokens ?? 4;
   const maxDistance = options.maxDistance ?? 1;
@@ -176,10 +200,13 @@ export function findFuzzyTokenAlignments(
 
   const candidateStarts = new Set<number>();
   canonicalTokens.forEach((token, canonicalIndex) => {
-    for (const sourceIndex of prepared.positions.get(token) ?? []) {
+    const values = typeof token === "string" ? [token] : [token.value, ...(token.alternatives ?? [])];
+    for (const value of values) {
+      for (const sourceIndex of prepared.positions.get(value) ?? []) {
       for (let shift = -1; shift <= 1; shift += 1) {
         const start = sourceIndex - canonicalIndex + shift;
         if (start >= 0 && start < sourceTokens.length) candidateStarts.add(start);
+      }
       }
     }
   });
