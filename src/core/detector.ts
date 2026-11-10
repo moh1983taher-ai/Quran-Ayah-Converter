@@ -310,6 +310,9 @@ export class QuranAyahDetector {
 
     // Third: all unmarked quotations, not just the single longest match.
     for (const unmarked of this.matchAllPassages(text, records)) {
+      // A bracketed quotation is one atomic matching unit. Never let the
+      // unmarked scanner salvage a shorter fuzzy window from inside it.
+      if (isInsideBracketedQuotation(text, unmarked.start, unmarked.end)) continue;
       if (unmarked.end - unmarked.start < this.options.minimumUnmarkedLength) continue;
       candidates.push({
         start: unmarked.start,
@@ -1036,7 +1039,11 @@ function tokenEditDistance(
     current[0] = row;
     let rowMinimum = current[0]!;
     for (let column = 1; column <= right.length; column += 1) {
-      const substitution = previous[column - 1]! + (left[row - 1] === right[column - 1] ? 0 : 1);
+      // Fuzzy quotation matching may tolerate an omitted/extra word,
+      // but never a substituted word: substitutions can conceal a changed
+      // Qur'anic letter (e.g. فاتقوا vs واتقوا).
+      const substitution = previous[column - 1]! +
+        (left[row - 1] === right[column - 1] ? 0 : maximumDistance + 1);
       current[column] = Math.min(
         previous[column]! + 1,
         current[column - 1]! + 1,
@@ -1048,6 +1055,22 @@ function tokenEditDistance(
     previous = current;
   }
   return previous[right.length]!;
+}
+
+function isInsideBracketedQuotation(text: string, start: number, end: number): boolean {
+  for (const [open, close] of BRACKET_PAIRS) {
+    let cursor = 0;
+    while (cursor < text.length) {
+      const opening = text.indexOf(open, cursor);
+      if (opening < 0) break;
+      const closing = text.indexOf(close, opening + open.length);
+      if (closing < 0) break;
+      const contentStart = opening + open.length;
+      if (start >= contentStart && end <= closing) return true;
+      cursor = closing + close.length;
+    }
+  }
+  return false;
 }
 
 function isBracketPadding(value: string): boolean {
