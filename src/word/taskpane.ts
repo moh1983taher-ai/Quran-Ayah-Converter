@@ -6,6 +6,7 @@ import { ensureOrnamentalVerseBrackets } from "./verse-format.js";
 import { formatQuranCitation, hasMatchingQuranCitation } from "./quran-citation.js";
 import { findLegacyBracketPairs, type MatchedBracketPair } from "./bracket-normalizer.js";
 import { validateQuranCitations, type QuranCitationIssue } from "./citation-validator.js";
+import { analyzeCitationText } from "./quran-citation-correction.js";
 
 
 declare const Office: {
@@ -957,10 +958,11 @@ async function inspectQuranCitations(): Promise<void> {
       await context.sync();
       const ranges = paragraphs.items.map(p => p.getRange("Content").load("text"));
       await context.sync();
-      const issues: Array<QuranCitationIssue & { paragraph: number }> = [];
+      const issues: Array<QuranCitationIssue & { paragraph: number; paragraphText: string }> = [];
       for (let i = 0; i < ranges.length; i++) {
-        for (const issue of validateQuranCitations(ranges[i]!.text, loaded.index)) {
-          issues.push({ ...issue, paragraph: i + 1 });
+        const paragraphText = ranges[i]!.text;
+        for (const issue of analyzeCitationText(paragraphText, validateQuranCitations(paragraphText, loaded.index), loaded.index)) {
+          issues.push({ ...issue, paragraph: i + 1, paragraphText });
         }
       }
       const root = byId<HTMLElement>("citationValidationResults");
@@ -981,13 +983,51 @@ async function inspectQuranCitations(): Promise<void> {
         detail.textContent = issue.message;
         const status = document.createElement("span");
         status.className = "confidence";
-        status.textContent = issue.status === "valid" ? "صحيح" : issue.status === "invalid" ? "غير صحيح" : "يحتاج إلى مراجعة";
+        status.textContent = issue.status === "valid" ? "صحيح شكليًا" : issue.status === "mismatch" ? "يحتمل خطأ التخريج" : issue.status === "invalid" ? "غير صحيح" : "يحتاج إلى مراجعة";
         card.append(heading, status, detail);
         if (issue.suggestedCitation) {
           const suggestion = document.createElement("p");
           suggestion.className = "verse-text";
-          suggestion.textContent = "التخريج: " + issue.suggestedCitation;
+          suggestion.textContent = "التخريج المقترح من مطابقة نص الآية: " + issue.suggestedCitation;
           card.append(suggestion);
+          if (issue.status === "mismatch") {
+            const applyCorrection = document.createElement("button");
+            applyCorrection.className = "secondary-button";
+            applyCorrection.textContent = "اعتماد تصحيح التخريج";
+            applyCorrection.addEventListener("click", async () => {
+              applyCorrection.disabled = true;
+              try {
+                await Word.run(async wordContext => {
+                  const paragraphsNow = wordContext.document.body.paragraphs.load("items");
+                  await wordContext.sync();
+                  const paragraph = paragraphsNow.items[issue.paragraph - 1];
+                  if (!paragraph) throw new Error("لم يعد موضع التخريج موجودًا؛ أعد الفحص.");
+                  const live = paragraph.getRange("Content").load("text");
+                  await wordContext.sync();
+                  if (live.text !== issue.paragraphText) throw new Error("تغير نص الفقرة بعد الفحص؛ أُلغي التصحيح حمايةً للمستند.");
+                  const occurrence = issue.paragraphText.slice(0, issue.start).split(issue.original).length - 1;
+                  const found = paragraph.getRange("Content").search(issue.original, { matchCase: true, matchWholeWord: false }).load("items");
+                  await wordContext.sync();
+                  for (const range of found.items) range.load("text");
+                  await wordContext.sync();
+                  const exact = found.items.filter(range => range.text === issue.original);
+                  const target = exact[occurrence];
+                  if (!target) throw new Error("تعذر تثبيت موضع التخريج تطابقًا حرفيًا؛ لم يُجر أي تعديل.");
+                  target.insertText(issue.suggestedCitation!, "Replace");
+                  await wordContext.sync();
+                });
+                applyCorrection.textContent = "تم اعتماد التصحيح";
+                applyCorrection.disabled = true;
+                status.textContent = "صُحح التخريج";
+                toast("تم تصحيح التخريج بعد موافقتك.");
+              } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                toast(message);
+                applyCorrection.disabled = false;
+              }
+            });
+            card.append(applyCorrection);
+          }
         }
         root.append(card);
       }
