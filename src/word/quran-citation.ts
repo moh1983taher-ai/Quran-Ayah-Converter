@@ -209,6 +209,19 @@ export function inspectAdjacentQuranCitation(
 
   // A plain bracketed number is commonly a footnote, not a Quran citation.
   if (!citationLike) {
+    const plainFootnote = /^\\s*\\d+\\s*$/u.test(asciiDigits(content));
+    if (!plainFootnote && /[\\p{L}]/u.test(content)) {
+      return {
+        status: "ambiguous",
+        expectedCitation,
+        existingCitation,
+        separator: match[1]!,
+        start,
+        end,
+        editable: false,
+        detail: "الإحالة الملاصقة ليست بصيغة تخريج قرآني واضحة؛ ستُترك دون تغيير."
+      };
+    }
     return {
       status: "missing",
       expectedCitation,
