@@ -502,7 +502,7 @@ export class QuranAyahDetector {
       const raw = content.slice(segment.start, segment.end);
       const leading = raw.length - raw.trimStart().length;
       const text = raw.trim();
-      if (!text) return [];
+      if (!text) return this.matchBracketedPassageByTokenSequence(content, records);
 
       // Keep printed verse markers in the source while excluding them from
       // textual matching. A repeated short phrase can be disambiguated by
@@ -511,10 +511,10 @@ export class QuranAyahDetector {
       const searchableText = trailingMarker
         ? text.slice(0, trailingMarker.index).trimEnd()
         : text;
-      if (!searchableText) return [];
+      if (!searchableText) return this.matchBracketedPassageByTokenSequence(content, records);
 
       const found = this.matchPassage(searchableText, records, true);
-      if (found.length !== 1) return [];
+      if (found.length !== 1) return this.matchBracketedPassageByTokenSequence(content, records);
       const item = found[0]!;
       const options = item.records.map(record => ({
         start: segment.start + leading + item.start,
@@ -524,7 +524,7 @@ export class QuranAyahDetector {
         confidence: item.confidence,
         evidence: item.evidence
       }));
-      if (options.length === 0) return [];
+      if (options.length === 0) return this.matchBracketedPassageByTokenSequence(content, records);
       segmentOptions.push(options);
     }
 
@@ -539,7 +539,7 @@ export class QuranAyahDetector {
       )
     );
     // Multiple valid sequences remain ambiguous and must not be guessed.
-    if (sequences.length !== 1) return [];
+    if (sequences.length !== 1) return this.matchBracketedPassageByTokenSequence(content, records);
     const first = sequences[0]!.record;
     const resolved = segmentOptions.map((options, index) =>
       options.find(option =>
@@ -564,6 +564,101 @@ export class QuranAyahDetector {
         detail: "مقطع واحد يضم آيات متتابعة؛ حُفظت فواصل الآيات الأصلية"
       }])
     }];
+  }
+
+  /**
+   * Exact token-stream fallback for a bracketed passage whose separators do
+   * not divide it into independently identifiable ayahs. It extends excerpt
+   * matching across consecutive ayah boundaries while keeping every Arabic
+   * token exact; only presentation/spacing normalization (including يا آدم /
+   * ياآدم) is shared with the regular excerpt matcher.
+   */
+  private matchBracketedPassageByTokenSequence(
+    content: string,
+    records: readonly QuranAyahRecord[]
+  ): PassageMatch[] {
+    const sourceTokens = tokenizeArabic(content);
+    if (sourceTokens.length === 0) return [];
+    const sourceValues = sourceTokens.map(token => token.value);
+    const possibleStarts = this.candidateRecordsForAnyToken([sourceValues[0]!]);
+    const found = new Map<string, PassageMatch>();
+
+    for (const startRecord of possibleStarts) {
+      const startIndex = this.recordPositions.get(startRecord) ?? records.indexOf(startRecord);
+      if (startIndex < 0) continue;
+
+      const flattened: Array<{
+        record: QuranAyahRecord;
+        imlaei: string;
+        uthmani: ReturnType<typeof tokenizeArabic>[number];
+      }> = [];
+      const group: QuranAyahRecord[] = [];
+
+      for (
+        let recordIndex = startIndex;
+        recordIndex < records.length && group.length < this.options.maximumAyahsPerMatch;
+        recordIndex += 1
+      ) {
+        const record = records[recordIndex];
+        if (!record) break;
+        if (group.length > 0) {
+          const previous = group[group.length - 1]!;
+          if (record.surah !== previous.surah || record.ayah !== previous.ayah + 1) break;
+        }
+
+        const prepared = this.prepared(record);
+        if (prepared.imlaeiTokens.length !== prepared.uthmaniTokens.length) break;
+        group.push(record);
+        prepared.imlaeiTokens.forEach((token, tokenIndex) => {
+          const uthmani = prepared.uthmaniTokens[tokenIndex];
+          if (uthmani) flattened.push({ record, imlaei: token.value, uthmani });
+        });
+
+        // A source passage may begin within its first ayah, but it must match
+        // one uninterrupted token run through the final source word.
+        const firstRecordTokenCount = this.prepared(startRecord).imlaeiTokens.length;
+        for (let offset = 0; offset < firstRecordTokenCount; offset += 1) {
+          if (offset + sourceValues.length > flattened.length) continue;
+          const window = flattened.slice(offset, offset + sourceValues.length);
+          if (!sourceValues.every((value, index) => window[index]?.imlaei === value)) continue;
+
+          const touchedRecords = [...new Map(
+            window.map(item => [item.record.id, item.record])
+          ).values()];
+          if (touchedRecords.length === 0) continue;
+          const identity = touchedRecords.map(record => record.id).join("+");
+          const key = `${identity}@${offset}`;
+
+          let replacementText = content;
+          for (let tokenIndex = sourceTokens.length - 1; tokenIndex >= 0; tokenIndex -= 1) {
+            const sourceToken = sourceTokens[tokenIndex]!;
+            const canonicalToken = window[tokenIndex]!.uthmani;
+            const canonicalRecord = window[tokenIndex]!.record;
+            replacementText = replacementText.slice(0, sourceToken.start) +
+              canonicalRecord.uthmani.slice(canonicalToken.start, canonicalToken.end) +
+              replacementText.slice(sourceToken.end);
+          }
+
+          found.set(key, {
+            start: 0,
+            end: content.length,
+            records: touchedRecords,
+            replacementText,
+            confidence: 0.995,
+            evidence: [{
+              type: "exact-text",
+              detail: "تطابق حرفي متصل لمقتطف ممتد عبر آيات متتابعة"
+            }, {
+              type: "context",
+              detail: "طُبّقت مطابقة المقتطف على تدفق آيات متتابعة مع حفظ الفواصل الأصلية"
+            }]
+          });
+        }
+      }
+    }
+
+    // Repeated Qur'anic passages or multiple placements remain unresolved.
+    return found.size === 1 ? [found.values().next().value!] : [];
   }
 
   private matchPassage(
