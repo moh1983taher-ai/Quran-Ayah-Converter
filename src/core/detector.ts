@@ -412,11 +412,13 @@ export class QuranAyahDetector {
   ): Array<{ start: number; end: number; records: QuranAyahRecord[]; evidence: MatchEvidence[]; confidence: number }> {
     const matches: Array<{ start: number; end: number; records: QuranAyahRecord[]; evidence: MatchEvidence[]; confidence: number }> = [];
     const preparedSource = prepareFuzzySource(source);
-    const sourceTokenValues = preparedSource.tokens.map(token => token.value);
+    const sourceTokenValues = preparedSource.tokens.flatMap(tokenForms);
     const candidateRecords = this.candidateRecordsForAnyToken(sourceTokenValues);
     const sourceTokenCounts = new Map<string, number>();
-    for (const token of sourceTokenValues) {
-      sourceTokenCounts.set(token, (sourceTokenCounts.get(token) ?? 0) + 1);
+    for (const token of preparedSource.tokens) {
+      for (const value of tokenForms(token)) {
+        sourceTokenCounts.set(value, (sourceTokenCounts.get(value) ?? 0) + 1);
+      }
     }
 
     this.diagnostics.fuzzyCandidateRecords += candidateRecords.length;
@@ -580,7 +582,7 @@ export class QuranAyahDetector {
     const sourceTokens = tokenizeArabic(content);
     if (sourceTokens.length === 0) return [];
     const sourceValues = sourceTokens.map(token => token.value);
-    const possibleStarts = this.candidateRecordsForAnyToken([sourceValues[0]!]);
+    const possibleStarts = this.candidateRecordsForAnyToken(tokenForms(sourceTokens[0]!));
     const found = new Map<string, PassageMatch>();
 
     for (const startRecord of possibleStarts) {
@@ -589,9 +591,8 @@ export class QuranAyahDetector {
 
       const flattened: Array<{
         record: QuranAyahRecord;
-        imlaei: string;
-        uthmani: ReturnType<typeof tokenizeArabic>[number];
         imlaei: ReturnType<typeof tokenizeArabic>[number];
+        uthmani: ReturnType<typeof tokenizeArabic>[number];
       }> = [];
       const group: QuranAyahRecord[] = [];
 
@@ -612,7 +613,7 @@ export class QuranAyahDetector {
         group.push(record);
         prepared.imlaeiTokens.forEach((token, tokenIndex) => {
           const uthmani = prepared.uthmaniTokens[tokenIndex];
-          if (uthmani) flattened.push({ record, imlaei: token.value, uthmani });
+          if (uthmani) flattened.push({ record, imlaei: token, uthmani });
         });
 
         // A source passage may begin within its first ayah, but it must match
