@@ -64,7 +64,7 @@ export function validateQuranCitations(text: string, index: QuranIndex): QuranCi
       status: missing ? "invalid" : "valid",
       references: missing ? [] : refs,
       message: missing ? "رقم الآية أو نهاية النطاق تتجاوز آيات السورة." : "التخريج مطابق لقاعدة المصحف.",
-      suggestedCitation
+      ...(suggestedCitation ? { suggestedCitation } : {})
     });
   }
   return issues;
