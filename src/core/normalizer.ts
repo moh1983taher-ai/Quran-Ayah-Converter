@@ -37,18 +37,22 @@ export function normalizeArabicWithMap(input: string): NormalizedText {
     // Qur'anic ligatures copied from PDFs/Word. Every expanded character maps
     // back to the original source code point so replacement offsets stay exact.
     for (const compatibleCharacter of character.normalize("NFKC")) {
-      if (
-        compatibleCharacter === TATWEEL ||
-        ARABIC_DIACRITICS.test(compatibleCharacter) ||
-        QURANIC_SMALL_LETTERS.test(compatibleCharacter) ||
-        FORMAT_CONTROLS.test(compatibleCharacter)
-      ) {
-        continue;
-      }
+      // The dagger alif (ٰ) is a Qur'anic orthographic form of ordinary alif.
+      // Normalize it before the general combining-mark filter, preserving the
+      // source range so Word replacement still selects the original grapheme.
+      const normalized = compatibleCharacter === "ٰ"
+        ? "ا"
+        : (
+          compatibleCharacter === TATWEEL ||
+          ARABIC_DIACRITICS.test(compatibleCharacter) ||
+          QURANIC_SMALL_LETTERS.test(compatibleCharacter) ||
+          FORMAT_CONTROLS.test(compatibleCharacter)
+            ? ""
+            : ALEF_VARIANTS[compatibleCharacter]
+              ?? (compatibleCharacter === "ى" ? "ي" : compatibleCharacter)
+        );
 
-      const normalized = ALEF_VARIANTS[compatibleCharacter]
-        ?? (compatibleCharacter === "ى" ? "ي" : compatibleCharacter);
-
+      if (!normalized) continue;
       value += normalized;
       for (let i = 0; i < normalized.length; i += 1) {
         sourceStart.push(start);
