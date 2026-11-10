@@ -1,7 +1,7 @@
 import { QuranAyahDetector } from "../core/detector.js";
 import { normalizeArabic } from "../core/normalizer.js";
 import { loadQuranDatasetJson } from "../core/dataset-loader.js";
-import { createReviewItems, getReviewSelectionCounts, groupBracketedAyahMatches, setReviewDecision, type ReviewItem } from "./review-workflow.js";
+import { createReviewItems, createScopedReviewItems, getReviewSelectionCounts, groupBracketedAyahMatches, setReviewDecision, type ReviewItem } from "./review-workflow.js";
 import { ensureOrnamentalVerseBrackets } from "./verse-format.js";
 import { formatQuranCitation, hasMatchingQuranCitation } from "./quran-citation.js";
 import { findLegacyBracketPairs, type MatchedBracketPair } from "./bracket-normalizer.js";
@@ -21,9 +21,12 @@ interface WordCollection<T> {
 }
 interface WordRange {
   text: string;
+  isNullObject: boolean;
+  paragraphs: WordCollection<WordParagraph>;
   font: { name: string };
   load(property: string): WordRange;
   expandTo(range: WordRange): WordRange;
+  intersectWithOrNullObject(range: WordRange): WordRange;
   insertText(text: string, location: "Replace"): WordRange;
   search(query: string, options: { matchCase: boolean; matchWholeWord: boolean }): WordCollection<WordRange>;
 }
@@ -566,6 +569,7 @@ async function inspectDocument(): Promise<void> {
 }
 
 
+
 async function inspectSelectedText(): Promise<void> {
   const scanStartedAt = performance.now();
   const metrics: ScanDiagnostics = {
@@ -577,7 +581,7 @@ async function inspectSelectedText(): Promise<void> {
   button.disabled = true;
   button.textContent = "جارٍ فحص النص المحدد…";
   updateScanProgress("تحميل قاعدة المصحف", 0, 0, "التحقق من بيانات حفص قبل البحث");
-  setStatus("جارٍ فحص النص المحدد", "سيُفحص النص المظلل في مستند Word دون المساس ببقية المستند", "يفحص");
+  setStatus("جارٍ فحص النص المحدد", "تجزئة التحديد إلى فقرات وفحصها تدريجيًا دون المساس ببقية المستند", "يفحص");
 
   try {
     const datasetStartedAt = performance.now();
@@ -591,71 +595,134 @@ async function inspectSelectedText(): Promise<void> {
 
     await Word.run(async context => {
       const wordReadStartedAt = performance.now();
-      const selection = context.document.getSelection().load("text");
+      const selection = context.document.getSelection();
+      const selectedParagraphs = selection.paragraphs.load("items");
       await context.sync();
-      const selectionText = selection.text;
-      if (!selectionText.trim()) {
-        throw new Error("لم يُحدّد نص في مستند Word. ظلّل النص المراد فحصه ثم أعد المحاولة.");
+
+      if (selectedParagraphs.items.length === 0) {
+        throw new Error("لم يُحدّد نص قابل للفحص. ظلّل النص المراد فحصه ثم أعد المحاولة.");
+      }
+
+      // WordApi 1.3 is declared by this add-in's manifest. Intersecting each
+      // paragraph with the actual selection clips partial first/last paragraphs
+      // and prevents scanning text outside the user's selection.
+      const paragraphIntersections = selectedParagraphs.items.map((paragraph, index) => ({
+        paragraphIndex: index,
+        range: paragraph.getRange("Content")
+          .intersectWithOrNullObject(selection)
+          .load("text")
+      }));
+      updateScanProgress(
+        "قراءة فقرات النص المحدد",
+        0,
+        0,
+        `تحديد نطاق ${selectedParagraphs.items.length.toLocaleString("ar")} فقرة داخل التحديد`
+      );
+      await context.sync();
+
+      const segments = paragraphIntersections
+        .filter(entry => !entry.range.isNullObject && entry.range.text.length > 0)
+        .map(entry => ({
+          paragraphIndex: entry.paragraphIndex,
+          range: entry.range,
+          text: entry.range.text
+        }));
+
+      if (segments.length === 0) {
+        throw new Error("التحديد لا يحتوي على نص داخل الفقرات. تأكد من تظليل النص نفسه لا موضع المؤشر فقط.");
       }
 
       metrics.wordReadMs = performance.now() - wordReadStartedAt;
-      metrics.paragraphCount = (selectionText.match(/[\r\n]/gu) ?? []).length + 1;
-      metrics.characterCount = selectionText.length;
+      metrics.paragraphCount = segments.length;
+      metrics.characterCount = segments.reduce((sum, segment) => sum + segment.text.length, 0);
 
-      const detectionStartedAt = performance.now();
       const detector = new QuranAyahDetector(loaded.index);
-      updateScanProgress("كشف الآيات في النص المحدد", 0, 1);
-      const detected = detector.detect(selectionText);
-      const grouped = groupBracketedAyahMatches(selectionText, detected);
-      reviewItems = createReviewItems(selectionText, grouped).map(item => ({
-        ...item,
-        id: `selection:${item.id}`,
-        replacementText: `﴿${item.replacementText}﴾`,
-        evidence: [...item.evidence, {
-          type: "context" as const,
-          detail: "ضمن النص المحدد في مستند Word"
-        }]
-      }));
-      metrics.detectionMs = performance.now() - detectionStartedAt;
-      metrics.detector = detector.getDiagnostics();
-      metrics.detectedCount = reviewItems.length;
-
-      const pending: Array<{ item: ReviewItem; stored: StoredReviewedRange }> = [];
+      const detectionStartedAt = performance.now();
+      reviewItems = [];
+      itemRanges.clear();
+      const pending: Array<{
+        item: ReviewItem;
+        stored: StoredReviewedRange;
+        searchScope: WordRange;
+        snapshot: string;
+      }> = [];
       const bracketPairs: ReadonlyArray<readonly [string, string]> = [
         ["﴿", "﴾"],
         ["", ""]
       ];
-      for (const item of reviewItems) {
-        if (item.status === "ambiguous" || !item.replacementText.trim()) continue;
-        let start = item.sourceStart;
-        let end = item.sourceEnd;
-        if (bracketPairs.some(([left, right]) =>
-          selectionText[start - 1] === left && selectionText[end] === right
-        )) {
-          start -= 1;
-          end += 1;
-        }
-        const stored: StoredReviewedRange = {
-          scope: "selection",
-          scopeSnapshot: selectionText,
-          paragraphIndex: -1,
-          start,
-          end,
-          expectedText: selectionText.slice(start, end)
-        };
-        itemRanges.set(item.id, stored);
-        pending.push({ item, stored });
-      }
 
-      metrics.rangeRequestCount = pending.length;
+      updateScanProgress("كشف الآيات في فقرات التحديد", 0, segments.length);
+      for (let index = 0; index < segments.length; index += 1) {
+        const segment = segments[index]!;
+        const detected = detector.detect(segment.text);
+        const grouped = groupBracketedAyahMatches(segment.text, detected);
+        const scoped = createScopedReviewItems(
+          segment.text,
+          grouped,
+          `selection:p${segment.paragraphIndex}`,
+          `ضمن النص المحدد · الفقرة ${segment.paragraphIndex + 1}`
+        ).map(item => ({
+          ...item,
+          // All selected-text results use the same canonical outer brackets.
+          replacementText: `﴿${item.replacementText}﴾`
+        }));
+
+        for (const item of scoped) {
+          if (item.status === "ambiguous" || !item.replacementText.trim()) continue;
+
+          let start = item.sourceStart;
+          let end = item.sourceEnd;
+          // Match the whole-document path: replace existing supported outer
+          // delimiters as part of the same range, never duplicate them.
+          if (bracketPairs.some(([left, right]) =>
+            segment.text[start - 1] === left && segment.text[end] === right
+          )) {
+            start -= 1;
+            end += 1;
+          }
+
+          const stored: StoredReviewedRange = {
+            scope: "selection",
+            scopeSnapshot: segment.text,
+            paragraphIndex: segment.paragraphIndex,
+            start,
+            end,
+            expectedText: segment.text.slice(start, end)
+          };
+          itemRanges.set(item.id, stored);
+          pending.push({
+            item,
+            stored,
+            searchScope: segment.range,
+            snapshot: segment.text
+          });
+        }
+
+        reviewItems.push(...scoped);
+        updateScanProgress("كشف الآيات في فقرات التحديد", index + 1, segments.length);
+        // Let the task pane render progress between CPU-bound detector passes.
+        await yieldToUi();
+      }
+      metrics.detectionMs = performance.now() - detectionStartedAt;
+      metrics.detector = detector.getDiagnostics();
+      metrics.detectedCount = reviewItems.length;
+
       const rangeStartedAt = performance.now();
-      updateScanProgress("تثبيت مواضع الآيات داخل النص المحدد", 0, pending.length);
+      metrics.rangeRequestCount = pending.length;
+      updateScanProgress(
+        "تثبيت مواضع الآيات داخل فقرات التحديد",
+        0,
+        pending.length,
+        pending.length ? undefined : "لا توجد نتائج تحتاج إلى تثبيت مواضع"
+      );
+      // Resolve in the same bounded batches as the full-document scanner.
+      // Each query is restricted to its paragraph/selection intersection.
       const scanBatchSize = 60;
       for (let offset = 0; offset < pending.length; offset += scanBatchSize) {
         const batch = pending.slice(offset, offset + scanBatchSize);
         const resolved = await resolveReviewedRangesBatch(context, batch.map(entry => ({
-          searchScope: selection,
-          snapshot: selectionText,
+          searchScope: entry.searchScope,
+          snapshot: entry.snapshot,
           start: entry.stored.start,
           end: entry.stored.end
         })));
@@ -671,10 +738,11 @@ async function inspectSelectedText(): Promise<void> {
           }
         });
         updateScanProgress(
-          "تثبيت مواضع الآيات داخل النص المحدد",
+          "تثبيت مواضع الآيات داخل فقرات التحديد",
           Math.min(offset + batch.length, pending.length),
           pending.length
         );
+        // Also yield between Office batches, not only between paragraphs.
         await yieldToUi();
       }
       metrics.rangeMs = performance.now() - rangeStartedAt;
@@ -686,14 +754,14 @@ async function inspectSelectedText(): Promise<void> {
       updateScanProgress("اكتمل فحص النص المحدد", 1, 1);
       setStatus(
         "اكتمل فحص النص المحدد",
-        `${metrics.characterCount.toLocaleString("ar")} محرف · ${reviewItems.length.toLocaleString("ar")} وحدة مراجعة`,
+        `${metrics.paragraphCount.toLocaleString("ar")} فقرة · ${metrics.characterCount.toLocaleString("ar")} محرف · ${reviewItems.length.toLocaleString("ar")} وحدة مراجعة`,
         "اكتمل"
       );
       if (!reviewItems.length) {
         byId("emptyState").querySelector("strong")!.textContent = "لم نعثر على اقتباسات";
-        byId("emptyState").querySelector("p")!.textContent = "لم تظهر مطابقات قرآنية في النص المحدد.";
+        byId("emptyState").querySelector("p")!.textContent = "لم تظهر مطابقات قرآنية في النص المحدد وفق قواعد الفحص الحالية.";
       }
-      toast(`اكتمل فحص النص المحدد: ${reviewItems.length} نتيجة. لم يتغير المستند.`);
+      toast(`اكتمل فحص النص المحدد: ${reviewItems.length} نتيجة في ${metrics.paragraphCount} فقرة. لم يتغير المستند.`);
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -707,6 +775,7 @@ async function inspectSelectedText(): Promise<void> {
     button.textContent = "فحص النص المحدد";
   }
 }
+
 
 /**
  * Build the exact reviewed range from Word's absolute character positions.

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildApprovedReplacements,
   createReviewItems,
+  createScopedReviewItems,
   getReviewSelectionCounts,
   groupBracketedAyahMatches,
   setReviewDecision
@@ -21,6 +22,37 @@ const match = (overrides: Partial<AyahMatch> = {}): AyahMatch => ({
 });
 
 describe("Word review workflow", () => {
+  it("keeps selected-paragraph matches scoped, with paragraph-local offsets and unique identities", () => {
+    const paragraphText = "قبل آية نص بعد";
+    const start = paragraphText.indexOf("آية نص");
+    const identicalMatch = match({
+      sourceStart: start,
+      sourceEnd: start + "آية نص".length
+    });
+    const first = createScopedReviewItems(
+      paragraphText,
+      [identicalMatch],
+      "selection:p0",
+      "ضمن التحديد · الفقرة 1"
+    );
+    const second = createScopedReviewItems(
+      paragraphText,
+      [identicalMatch],
+      "selection:p1",
+      "ضمن التحديد · الفقرة 2"
+    );
+
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+    expect(first[0]?.id).toMatch(/^selection:p0:/u);
+    expect(second[0]?.id).toMatch(/^selection:p1:/u);
+    expect(first[0]?.id).not.toBe(second[0]?.id);
+    expect(first[0]?.sourceStart).toBe(start);
+    expect(second[0]?.sourceStart).toBe(start);
+    expect(first[0]?.originalText).toBe("آية نص");
+    expect(second[0]?.originalText).toBe("آية نص");
+  });
+
   it("enables the clear-selection action only while at least one result is approved", () => {
     const source = "قبل آية نص بعد";
     const start = source.indexOf("آية نص");
