@@ -5,6 +5,7 @@ import { createReviewItems, createScopedReviewItems, getReviewSelectionCounts, g
 import { ensureOrnamentalVerseBrackets } from "./verse-format.js";
 import { formatQuranCitation, hasMatchingQuranCitation } from "./quran-citation.js";
 import { findLegacyBracketPairs, type MatchedBracketPair } from "./bracket-normalizer.js";
+import { validateQuranCitations, type QuranCitationIssue } from "./citation-validator.js";
 
 
 declare const Office: {
@@ -943,6 +944,68 @@ async function resolveReviewedRangesBatch(
 
 
 
+
+async function inspectQuranCitations(): Promise<void> {
+  const button = byId<HTMLButtonElement>("validateCitationsButton");
+  button.disabled = true;
+  button.textContent = "جارٍ التحقق…";
+  try {
+    datasetPromise ??= loadDataset();
+    const loaded = await datasetPromise;
+    await Word.run(async context => {
+      const paragraphs = context.document.body.paragraphs.load("items");
+      await context.sync();
+      const ranges = paragraphs.items.map(p => p.getRange("Content").load("text"));
+      await context.sync();
+      const issues: Array<QuranCitationIssue & { paragraph: number }> = [];
+      for (let i = 0; i < ranges.length; i++) {
+        for (const issue of validateQuranCitations(ranges[i]!.text, loaded.index)) {
+          issues.push({ ...issue, paragraph: i + 1 });
+        }
+      }
+      const root = byId<HTMLElement>("citationValidationResults");
+      root.replaceChildren();
+      byId("citationValidationCount").textContent = String(issues.length);
+      if (!issues.length) {
+        const empty = document.createElement("p");
+        empty.textContent = "لم يُعثر على تخريجات بالصيغة المعروفة للتحقق.";
+        root.append(empty);
+      }
+      for (const issue of issues) {
+        const card = document.createElement("article");
+        card.className = "result-card";
+        const heading = document.createElement("strong");
+        heading.textContent = issue.original + " · الفقرة " + issue.paragraph;
+        const detail = document.createElement("p");
+        detail.className = "result-meta";
+        detail.textContent = issue.message;
+        const status = document.createElement("span");
+        status.className = "confidence";
+        status.textContent = issue.status === "valid" ? "صحيح" : issue.status === "invalid" ? "غير صحيح" : "يحتاج إلى مراجعة";
+        card.append(heading, status, detail);
+        if (issue.suggestedCitation) {
+          const suggestion = document.createElement("p");
+          suggestion.className = "verse-text";
+          suggestion.textContent = "التخريج: " + issue.suggestedCitation;
+          card.append(suggestion);
+        }
+        root.append(card);
+      }
+      byId<HTMLElement>("citationValidationPanel").hidden = false;
+      setStatus("اكتمل التحقق", "عدد الإحالات التي جرى فحصها: " + issues.length + ". لم يتغير المستند.", "اكتمل");
+      toast("اكتمل التحقق من التخريجات: " + issues.length + " نتيجة. لم يتغير المستند.");
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setStatus("تعذر التحقق", message, "توقف");
+    toast(message);
+  } finally {
+    button.disabled = false;
+    button.textContent = "التحقق من التخريجات";
+  }
+}
+
+
 async function applyApprovedReplacements(): Promise<void> {
   const approved = reviewItems.filter(item => item.decision === "approved");
   if (!approved.length) return;
@@ -1140,6 +1203,7 @@ async function applyApprovedReplacements(): Promise<void> {
 }
 
 Office.onReady(() => {
+  byId<HTMLButtonElement>("validateCitationsButton").addEventListener("click", () => void inspectQuranCitations());
   byId<HTMLButtonElement>("scanButton").addEventListener("click", () => void inspectDocument());
   byId<HTMLButtonElement>("scanSelectionButton").addEventListener("click", () => void inspectSelectedText());
   byId<HTMLButtonElement>("scanBracketsButton").addEventListener("click", () => void inspectLegacyBrackets());
