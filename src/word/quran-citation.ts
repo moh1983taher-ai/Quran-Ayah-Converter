@@ -26,6 +26,49 @@ export interface CitationReviewScope {
   end: number;
 }
 
+/** Independent user choices for citation insertion and correction. */
+export interface QuranCitationOperationOptions {
+  /** Add a citation only when the adjacent citation is missing. */
+  addMissing: boolean;
+  /** Replace a clearly identified incorrect citation; never insert missing ones. */
+  correctExisting: boolean;
+}
+
+/**
+ * Applies citation actions without conflating insertion with correction.
+ * Existing incorrect citations are preserved unless correction is explicitly
+ * enabled. Ambiguous, out-of-scope and unavailable cases are never modified.
+ */
+export function composeQuranCitationReplacement(
+  verseText: string,
+  review: QuranCitationReview | undefined,
+  expectedCitation: string | undefined,
+  options: QuranCitationOperationOptions
+): string {
+  if (!review) return verseText;
+
+  const separator = review.separator ?? " ";
+  switch (review.status) {
+    case "missing":
+      return options.addMissing && expectedCitation
+        ? `${verseText}${separator}${expectedCitation}`
+        : verseText;
+
+    case "incorrect": {
+      const citation = options.correctExisting
+        ? expectedCitation
+        : review.existingCitation;
+      return citation ? `${verseText}${separator}${citation}` : verseText;
+    }
+
+    case "correct":
+    case "ambiguous":
+    case "outside-scope":
+    case "unavailable":
+      return verseText;
+  }
+}
+
 /** Build source-backed citations from verified dataset identities only. */
 export function formatQuranCitation(references: readonly AyahReference[], index: QuranIndex): string | undefined {
   if (!references.length) return undefined;
