@@ -1082,7 +1082,7 @@ async function applyApprovedReplacements(): Promise<void> {
       let replacement = finalVerseText;
       if (citation && addCitations) {
         if (citationReview?.status === "missing") {
-          replacement = `${finalVerseText} ${citation}`;
+          replacement = `${finalVerseText}${citationReview.separator ?? " "}${citation}`;
         } else if (citationReview?.status === "incorrect") {
           replacement = `${finalVerseText} ${citation}`;
         } else if (citationReview?.status === "correct") {
