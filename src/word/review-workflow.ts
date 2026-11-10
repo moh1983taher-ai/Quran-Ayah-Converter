@@ -1,5 +1,6 @@
 import type { AyahMatch, AyahReference } from "../core/types.js";
 import type { WordReplacement } from "./word-adapter.js";
+import type { QuranCitationReview } from "./quran-citation.js";
 
 export type ReviewDecision = "pending" | "approved" | "rejected" | "applied";
 
@@ -14,6 +15,8 @@ export interface ReviewItem {
   status: AyahMatch["status"];
   evidence: AyahMatch["evidence"];
   decision: ReviewDecision;
+  /** Citation state is attached to this ayah review card when enabled. */
+  citationReview?: QuranCitationReview;
 }
 
 
