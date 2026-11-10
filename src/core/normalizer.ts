@@ -9,7 +9,10 @@ const ALEF_VARIANTS: Record<string, string> = {
   "أ": "ا",
   "إ": "ا",
   "آ": "ا",
-  "ٱ": "ا"
+  "ٱ": "ا",
+  // Normalize hamza-seat variants while preserving the hamza itself.
+  "ؤ": "ء",
+  "ئ": "ء"
 };
 
 /**
