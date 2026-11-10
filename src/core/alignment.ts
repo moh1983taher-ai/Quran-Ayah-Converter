@@ -35,7 +35,20 @@ export function tokenizeNormalized(normalized: NormalizedText): AlignmentToken[]
     const start = match.index ?? 0;
     const end = start + match[0].length;
     const mapped = mapNormalizedRange(normalized, start, end);
-    if (mapped) tokens.push({ value: match[0], start: mapped.start, end: mapped.end });
+    if (!mapped) continue;
+
+    const previous = tokens[tokens.length - 1];
+    if (
+      previous?.value === "يا" &&
+      /^\\s*$/u.test(normalized.sourceText.slice(previous.end, mapped.start))
+    ) {
+      // Treat the vocative particle plus its following word as one matching
+      // token: "يا آدم"/"ياآدم" and "يا أيها"/"ياأيها".
+      previous.value += match[0];
+      previous.end = mapped.end;
+    } else {
+      tokens.push({ value: match[0], start: mapped.start, end: mapped.end });
+    }
   }
   return tokens;
 }
