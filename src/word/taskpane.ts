@@ -3,7 +3,7 @@ import { normalizeArabic } from "../core/normalizer.js";
 import { loadQuranDatasetJson } from "../core/dataset-loader.js";
 import { createReviewItems, createScopedReviewItems, getReviewSelectionCounts, groupBracketedAyahMatches, setReviewDecision, type ReviewItem } from "./review-workflow.js";
 import { ensureOrnamentalVerseBrackets } from "./verse-format.js";
-import { formatQuranCitation, inspectAdjacentQuranCitation } from "./quran-citation.js";
+import { composeQuranCitationReplacement, formatQuranCitation, inspectAdjacentQuranCitation } from "./quran-citation.js";
 import { findLegacyBracketPairs, type MatchedBracketPair } from "./bracket-normalizer.js";
 import { validateQuranCitations, type QuranCitationIssue } from "./citation-validator.js";
 
@@ -1041,7 +1041,8 @@ async function applyApprovedReplacements(): Promise<void> {
   if (!approved.length) return;
 
   const addCitations = byId<HTMLInputElement>("addCitations").checked;
-  const quranIndex = addCitations
+  const correctCitations = byId<HTMLInputElement>("correctCitations").checked;
+  const quranIndex = addCitations || correctCitations
     ? await (datasetPromise ??= loadDataset()).then(loaded => loaded.index)
     : undefined;
 
@@ -1078,22 +1079,15 @@ async function applyApprovedReplacements(): Promise<void> {
       const citation = quranIndex
         ? formatQuranCitation(entry.item.references, quranIndex)
         : undefined;
-      const citationReview = entry.item.citationReview;
-      let replacement = finalVerseText;
-      if (citation && addCitations) {
-        if (citationReview?.status === "missing") {
-          replacement = `${finalVerseText}${citationReview.separator ?? " "}${citation}`;
-        } else if (citationReview?.status === "incorrect") {
-          replacement = `${finalVerseText}${citationReview.separator ?? " "}${citation}`;
-        } else if (citationReview?.status === "correct") {
-          replacement = finalVerseText;
-        } else if (citationReview?.status === "unavailable") {
-          replacement = finalVerseText;
+      const replacement = composeQuranCitationReplacement(
+        finalVerseText,
+        entry.item.citationReview,
+        citation,
+        {
+          addMissing: addCitations,
+          correctExisting: correctCitations
         }
-      } else if (citationReview?.status === "incorrect" && citationReview.existingCitation) {
-        // Preserve an unapproved citation exactly as it appeared in the source.
-        replacement = `${finalVerseText}${citationReview.separator ?? " "}${citationReview.existingCitation}`;
-      }
+      );
       const inserted = entry.range.insertText(replacement, "Replace");
       inserted.font.name = "KFGQPC HAFS Uthmanic Script";
     }
