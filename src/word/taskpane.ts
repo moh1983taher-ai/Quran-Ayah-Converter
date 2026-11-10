@@ -1371,8 +1371,12 @@ async function applyApprovedReplacements(): Promise<void> {
     if (!citationOptionsEnabled) {
       summaryParts.push("لم تُغيّر التخريجات");
     } else {
-      summaryParts.push(`إضافة ${citationsAdded.toLocaleString("ar")}`);
-      summaryParts.push(`تصحيح ${citationsCorrected.toLocaleString("ar")}`);
+      summaryParts.push(addCitations
+        ? `إضافة ${citationsAdded.toLocaleString("ar")}`
+        : "إضافة التخريجات غير مفعّلة");
+      summaryParts.push(correctCitations
+        ? `تصحيح ${citationsCorrected.toLocaleString("ar")}`
+        : "تصحيح التخريجات غير مفعّل");
       if (citationsAlreadyCorrect) summaryParts.push(`إبقاء ${citationsAlreadyCorrect.toLocaleString("ar")} تخريج صحيح كما هو`);
       if (incorrectLeftUnchanged) summaryParts.push(`إبقاء ${incorrectLeftUnchanged.toLocaleString("ar")} تخريج خاطئ دون تصحيح لأن خياره غير مفعّل`);
       if (missingLeftUnchanged) summaryParts.push(`عدم إضافة ${missingLeftUnchanged.toLocaleString("ar")} تخريج لأن خيار الإضافة غير مفعّل`);
