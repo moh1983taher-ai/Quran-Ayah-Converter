@@ -46,7 +46,7 @@ export function tokenizeNormalized(normalized: NormalizedText): AlignmentToken[]
     // ordinary alif in the imlaei spelling حَلَالًا. The general
     // diacritic stripper removes the mark, so restore this lexeme-level
     // spelling equivalence only when the source token actually contains it.
-    const tokenValue = sourceToken.includes("\\u0670") && match[0] === "حللا"
+    const tokenValue = sourceToken.includes("ٰ") && match[0] === "حللا"
       ? "حلالا"
       : match[0].replace(/ءوا$/u, "ءو");
     const previous = tokens[tokens.length - 1];
