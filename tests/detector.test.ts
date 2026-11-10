@@ -506,6 +506,23 @@ describe("bracketed quotation integrity", () => {
     expect(joined.some(match => match.references.some(ref => ref.surah === 2 && ref.ayah === 35))).toBe(true);
   });
 
+  it("matches joined Uthmani يا النداء against separated imlaei يا أيها", () => {
+    const verse: QuranAyahRecord = {
+      id: "7:158",
+      surah: 7,
+      ayah: 158,
+      surahNameArabic: "الأعراف",
+      uthmani: "قُلْ يَٰٓأَيُّهَا النَّاسُ إِنِّي رَسُولُ اللَّهِ إِلَيْكُمْ جَمِيعًا",
+      imlaei: "قل يا ايها الناس اني رسول الله اليكم جميعا"
+    };
+    const localDetector = new QuranAyahDetector(new InMemoryQuranIndex([verse]));
+    const text = "قال تعالى ﴿قل يا أيها الناس إني رسول الله إليكم جميعا﴾";
+    const matches = localDetector.detect(text);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.references).toEqual([{ surah: 7, ayah: 158 }]);
+    expect(matches[0]?.replacementText).toContain("يَٰٓأَيُّهَا");
+  });
+
   it("treats nested Qur'anic brackets as one complete outer quotation", () => {
     const hud: QuranAyahRecord = {
       id: "11:78", surah: 11, ayah: 78, surahNameArabic: "هود",
