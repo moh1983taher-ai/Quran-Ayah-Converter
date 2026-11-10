@@ -802,7 +802,7 @@ async function applyApprovedReplacements(): Promise<void> {
           ? `${finalVerseText} ${citation}`
           : finalVerseText;
         const inserted = entry.range.insertText(replacement, "Replace");
-        inserted.font.name = "KFGQPC Uthmanic Script HAFS";
+        inserted.font.name = "KFGQPC HAFS Uthmanic Script";
       }
       await context.sync();
       for (const entry of resolvedEntries) context.trackedObjects.remove(entry.range);
