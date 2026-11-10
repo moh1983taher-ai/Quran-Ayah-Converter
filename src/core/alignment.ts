@@ -41,7 +41,7 @@ export function tokenizeNormalized(normalized: NormalizedText): AlignmentToken[]
     // (e.g. source "فباؤوا" versus canonical "فباءو"). Treat that
     // final alif as a spelling convention at token level, not as a
     // character-level fuzzy substitution. Source offsets remain untouched.
-    const tokenValue = match[0].replace(/وا$/u, "و");
+    const tokenValue = match[0].replace(/ءوا$/u, "ءو");
     const previous = tokens[tokens.length - 1];
     if (
       previous?.value === "يا" &&
