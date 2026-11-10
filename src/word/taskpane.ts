@@ -655,7 +655,7 @@ async function inspectSelectedText(): Promise<void> {
         ["﴿", "﴾"],
         ["", ""]
       ];
-      // Keep the exact selected paragraph intersections alive until approval.
+      // Keep each selected paragraph intersection alive across review and apply.
       // The Word selection itself may change when the user focuses the task pane.
       const trackedSelectionScopes = new Set<WordRange>();
 
