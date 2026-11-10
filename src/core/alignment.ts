@@ -44,7 +44,9 @@ export function tokenizeNormalized(normalized: NormalizedText): AlignmentToken[]
     ) {
       // Treat the vocative particle plus its following word as one matching
       // token: "يا آدم"/"ياآدم" and "يا أيها"/"ياأيها".
-      previous.value += match[0];
+      // Normalize the common written variants "يا آدم"/"ياآدم"
+      // and "يا أيها"/"ياأيها" to the same vocative token.
+      previous.value += match[0].startsWith("ا") ? match[0].slice(1) : match[0];
       previous.end = mapped.end;
     } else {
       tokens.push({ value: match[0], start: mapped.start, end: mapped.end });
