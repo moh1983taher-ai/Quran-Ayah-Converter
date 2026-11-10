@@ -1084,7 +1084,7 @@ async function applyApprovedReplacements(): Promise<void> {
         if (citationReview?.status === "missing") {
           replacement = `${finalVerseText}${citationReview.separator ?? " "}${citation}`;
         } else if (citationReview?.status === "incorrect") {
-          replacement = `${finalVerseText} ${citation}`;
+          replacement = `${finalVerseText}${citationReview.separator ?? " "}${citation}`;
         } else if (citationReview?.status === "correct") {
           replacement = finalVerseText;
         } else if (citationReview?.status === "unavailable") {
@@ -1092,7 +1092,7 @@ async function applyApprovedReplacements(): Promise<void> {
         }
       } else if (citationReview?.status === "incorrect" && citationReview.existingCitation) {
         // Preserve an unapproved citation exactly as it appeared in the source.
-        replacement = `${finalVerseText} ${citationReview.existingCitation}`;
+        replacement = `${finalVerseText}${citationReview.separator ?? " "}${citationReview.existingCitation}`;
       }
       const inserted = entry.range.insertText(replacement, "Replace");
       inserted.font.name = "KFGQPC HAFS Uthmanic Script";
