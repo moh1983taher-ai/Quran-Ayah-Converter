@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildApprovedReplacements,
   createReviewItems,
+  getReviewSelectionCounts,
   groupBracketedAyahMatches,
   setReviewDecision
 } from "../src/word/review-workflow.js";
@@ -20,6 +21,31 @@ const match = (overrides: Partial<AyahMatch> = {}): AyahMatch => ({
 });
 
 describe("Word review workflow", () => {
+  it("enables the clear-selection action only while at least one result is approved", () => {
+    const source = "قبل آية نص بعد";
+    const start = source.indexOf("آية نص");
+    const items = createReviewItems(source, [
+      match({ sourceStart: start, sourceEnd: start + "آية نص".length })
+    ]);
+
+    expect(getReviewSelectionCounts(items)).toEqual({
+      selectableCount: 1,
+      approvedCount: 0
+    });
+
+    const approved = setReviewDecision(items, [items[0]!.id], "approved");
+    expect(getReviewSelectionCounts(approved)).toEqual({
+      selectableCount: 1,
+      approvedCount: 1
+    });
+
+    const cleared = setReviewDecision(approved, [items[0]!.id], "rejected");
+    expect(getReviewSelectionCounts(cleared)).toEqual({
+      selectableCount: 1,
+      approvedCount: 0
+    });
+  });
+
 
   it("groups consecutive ayahs inside one legacy outer pair and preserves separators", () => {
     const source = "قبل آية أولى * آية ثانية، آية ثالثة [يوسف: 3] بعد";
