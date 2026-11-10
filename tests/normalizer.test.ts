@@ -34,6 +34,13 @@ describe("Arabic normalization", () => {
     expect(normalizeArabic("ۥۦ")).toBe("");
   });
 
+  it("aligns joined vocative forms containing dagger alif with spaced imlaei forms", () => {
+    expect(tokenizeArabic("يَٰٓـَٔادَمُ").map(token => token.value))
+      .toEqual(tokenizeArabic("يا آدم").map(token => token.value));
+    expect(tokenizeArabic("يَٰٓأَيُّهَا").map(token => token.value))
+      .toEqual(tokenizeArabic("يا أيها").map(token => token.value));
+  });
+
   it("normalizes Arabic presentation ligatures and removes invisible format controls", () => {
     expect(normalizeArabic("ﷲ لَا\u200Dه")).toBe("الله لاه");
   });
