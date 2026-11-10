@@ -47,3 +47,7 @@
 .scan-progress-meta{font-size:10px;color:var(--muted)}
 .scan-progress.is-indeterminate .scan-progress-track span{width:34%;animation:scan-progress-indeterminate 1.25s ease-in-out infinite alternate}
 @keyframes scan-progress-indeterminate{from{transform:translateX(0)}to{transform:translateX(190%)}}
+
+/* The two citation operations are independent and intentionally explicit. */
+.citation-option{display:grid;gap:10px}
+.citation-check + .citation-check{border-top:1px solid var(--line);padding-top:10px}

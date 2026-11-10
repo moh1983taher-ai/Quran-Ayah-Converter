@@ -79,7 +79,11 @@
     <section class="citation-option" aria-label="خيارات تخريج الآيات">
       <label class="check-row citation-check">
         <input id="addCitations" type="checkbox">
-        <span><strong>إضافة تخريج الآيات</strong><small>اختياري؛ يُدرج بعد القوس القرآني، ويتجنب تكرار التخريج المطابق الموجود.</small></span>
+        <span><strong>إضافة تخريج الآيات</strong><small>تضيف التخريج للآيات المكتشفة التي لا يوجد بجوارها تخريج؛ ولا تصحح التخريج الموجود إذا كان خاطئًا.</small></span>
+      </label>
+      <label class="check-row citation-check">
+        <input id="correctCitations" type="checkbox">
+        <span><strong>تصحيح التخريجات الموجودة</strong><small>تصحح التخريج المعروف والخاطئ فقط؛ ولا تضيف تخريجًا للآيات التي لا يوجد لها تخريج.</small></span>
       </label>
     </section>
     <section id="emptyState" class="empty-state"><div class="empty-icon">۞</div><strong>لم يبدأ الفحص بعد</strong><p>ستظهر هنا الآيات التي يعثر عليها المحرك، مع مواضعها ودرجة الثقة.</p></section>

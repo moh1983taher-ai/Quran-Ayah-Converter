@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  composeQuranCitationReplacement,
   formatQuranCitation,
   hasMatchingQuranCitation,
   inspectAdjacentQuranCitation
@@ -121,5 +122,97 @@ describe("adjacent Quran citation review", () => {
     const passageCitation = "[يوسف: 23–25]";
     const result = inspectAdjacentQuranCitation(verse + " " + passageCitation, verse.length, passageCitation, passageRefs, passageIndex);
     expect(result.status).toBe("correct");
+  });
+});
+
+
+describe("independent Quran citation operations", () => {
+  const verse = "﴿نص الآية﴾";
+  const expected = "[النساء: 30]";
+  const options = (addMissing: boolean, correctExisting: boolean) => ({
+    addMissing,
+    correctExisting
+  });
+
+  it("adds a missing citation only when addition is enabled", () => {
+    const review = {
+      status: "missing" as const,
+      expectedCitation: expected,
+      separator: "، ",
+      editable: true,
+      detail: "missing"
+    };
+    expect(composeQuranCitationReplacement(verse, review, expected, options(true, false)))
+      .toBe(`${verse}، ${expected}`);
+    expect(composeQuranCitationReplacement(verse, review, expected, options(false, true)))
+      .toBe(verse);
+    expect(composeQuranCitationReplacement(verse, review, expected, options(false, false)))
+      .toBe(verse);
+  });
+
+  it("corrects an existing wrong citation only when correction is enabled", () => {
+    const wrong = "[يوسف: 3]";
+    const review = {
+      status: "incorrect" as const,
+      expectedCitation: expected,
+      existingCitation: wrong,
+      separator: "  ",
+      editable: true,
+      detail: "incorrect"
+    };
+    expect(composeQuranCitationReplacement(verse, review, expected, options(false, true)))
+      .toBe(`${verse}  ${expected}`);
+    expect(composeQuranCitationReplacement(verse, review, expected, options(true, false)))
+      .toBe(`${verse}  ${wrong}`);
+    expect(composeQuranCitationReplacement(verse, review, expected, options(false, false)))
+      .toBe(`${verse}  ${wrong}`);
+  });
+
+  it("supports enabling addition and correction together without mixing their targets", () => {
+    const missing = {
+      status: "missing" as const,
+      expectedCitation: expected,
+      editable: true,
+      detail: "missing"
+    };
+    const wrong = {
+      status: "incorrect" as const,
+      expectedCitation: expected,
+      existingCitation: "[يوسف: 3]",
+      separator: " ",
+      editable: true,
+      detail: "incorrect"
+    };
+    expect(composeQuranCitationReplacement(verse, missing, expected, options(true, true)))
+      .toBe(`${verse} ${expected}`);
+    expect(composeQuranCitationReplacement(verse, wrong, expected, options(true, true)))
+      .toBe(`${verse} ${expected}`);
+  });
+
+  it("does not modify correct, ambiguous, out-of-scope, or unavailable citations", () => {
+    const statuses = ["correct", "ambiguous", "outside-scope", "unavailable"] as const;
+    for (const status of statuses) {
+      const review = {
+        status,
+        expectedCitation: expected,
+        existingCitation: "[يوسف: 3]",
+        separator: " ",
+        editable: false,
+        detail: status
+      };
+      expect(composeQuranCitationReplacement(verse, review, expected, options(true, true)))
+        .toBe(verse);
+    }
+  });
+
+  it("does not invent a citation when the canonical citation is unavailable", () => {
+    const review = {
+      status: "missing" as const,
+      expectedCitation: "",
+      editable: false,
+      detail: "unavailable"
+    };
+    expect(composeQuranCitationReplacement(verse, review, undefined, options(true, false)))
+      .toBe(verse);
   });
 });
