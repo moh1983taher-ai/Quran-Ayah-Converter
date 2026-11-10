@@ -77,7 +77,8 @@ describe("adjacent Quran citation review", () => {
 
   it("classifies a known wrong citation and captures its exact range", () => {
     const text = verse + "، [يوسف: 3]";
-    const result = inspectAdjacentQuranCitation(text, verse.length, expected, refs, index);
+    const wrongIndex = indexFor([...refs, { surah: 12, ayah: 3 }]);
+    const result = inspectAdjacentQuranCitation(text, verse.length, expected, refs, wrongIndex);
     expect(result.status).toBe("incorrect");
     expect(result.editable).toBe(true);
     expect(text.slice(result.start, result.end)).toBe("[يوسف: 3]");
