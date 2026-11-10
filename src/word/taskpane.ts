@@ -43,6 +43,8 @@ interface StoredReviewedRange {
   range?: WordRange;
   scope?: "selection";
   scopeSnapshot?: string;
+  /** Tracked Word range representing the exact selected paragraph intersection. */
+  scopeRange?: WordRange;
   paragraphIndex: number;
   start: number;
   end: number;
@@ -245,7 +247,10 @@ function renderResults(): void {
 }
 async function releaseReviewedRanges(): Promise<void> {
   const entries = [...itemRanges.values()];
-  const trackedRanges = [...new Set(entries.flatMap(entry => entry.range ? [entry.range] : []))];
+  const trackedRanges = [...new Set(entries.flatMap(entry => [
+    ...(entry.range ? [entry.range] : []),
+    ...(entry.scopeRange ? [entry.scopeRange] : [])
+  ]))];
   if (trackedRanges.length) {
     await Word.run(trackedRanges, async context => {
       for (const range of trackedRanges) context.trackedObjects.remove(range);
@@ -650,6 +655,9 @@ async function inspectSelectedText(): Promise<void> {
         ["﴿", "﴾"],
         ["", ""]
       ];
+      // Keep the exact selected paragraph intersections alive until approval.
+      // The Word selection itself may change when the user focuses the task pane.
+      const trackedSelectionScopes = new Set<WordRange>();
 
       updateScanProgress("كشف الآيات في فقرات التحديد", 0, segments.length);
       for (let index = 0; index < segments.length; index += 1) {
@@ -681,9 +689,14 @@ async function inspectSelectedText(): Promise<void> {
             end += 1;
           }
 
+          if (!trackedSelectionScopes.has(segment.range)) {
+            context.trackedObjects.add(segment.range);
+            trackedSelectionScopes.add(segment.range);
+          }
           const stored: StoredReviewedRange = {
             scope: "selection",
             scopeSnapshot: segment.text,
+            scopeRange: segment.range,
             paragraphIndex: segment.paragraphIndex,
             start,
             end,
@@ -703,6 +716,7 @@ async function inspectSelectedText(): Promise<void> {
         // Let the task pane render progress between CPU-bound detector passes.
         await yieldToUi();
       }
+      if (trackedSelectionScopes.size) await context.sync();
       metrics.detectionMs = performance.now() - detectionStartedAt;
       metrics.detector = detector.getDiagnostics();
       metrics.detectedCount = reviewItems.length;
@@ -988,26 +1002,73 @@ async function applyApprovedReplacements(): Promise<void> {
   try {
     const selectedScope = entries.some(entry => entry.scope === "selection");
     if (selectedScope) {
-      if (entries.some(entry => entry.scope !== "selection" || !entry.range)) {
-        throw new Error("تعذر تثبيت أحد مواضع النص المحدد. أعد فحص النص قبل الاستبدال.");
+      if (entries.some(entry =>
+        entry.scope !== "selection" || !entry.scopeRange || !entry.scopeSnapshot
+      )) {
+        throw new Error("تعذر تثبيت نطاق إحدى فقرات النص المحدد. أعد فحص النص قبل الاستبدال.");
       }
-      const trackedRanges = entries.map(entry => entry.range!);
-      await Word.run(trackedRanges, async context => {
-        for (const range of trackedRanges) range.load("text");
+
+      // Resolve again at apply time inside the precise paragraph intersections
+      // captured during scanning. This follows the same guarded strategy as
+      // the whole-document apply path and avoids relying on stale hit objects.
+      const selectedScopes = [...new Set(entries.map(entry => entry.scopeRange!))];
+      await Word.run(selectedScopes, async context => {
+        for (const scope of selectedScopes) scope.load("text");
         await context.sync();
 
-        const resolvedEntries: ResolvedApplyEntry[] = entries.map((entry, index) => {
-          const range = trackedRanges[index]!;
-          if (range.text !== entry.expectedText) {
-            throw new Error("تغير نص إحدى الآيات المحددة بعد الفحص؛ أُلغي الاستبدال حمايةً للمستند.");
+        for (const entry of entries) {
+          if (entry.scopeRange!.text !== entry.scopeSnapshot) {
+            throw new Error("تغير النص المحدد بعد الفحص؛ أُلغي الاستبدال حمايةً للمستند. أعد الفحص ثم اعتمد النتائج.");
           }
-          return {
+        }
+
+        const requests = entries.map(entry => ({
+          searchScope: entry.scopeRange!,
+          snapshot: entry.scopeSnapshot!,
+          start: entry.start,
+          end: entry.end
+        }));
+        const resolvedRanges: WordRange[] = [];
+        let replacementsApplied = false;
+        try {
+          const applyBatchSize = 60;
+          for (let offset = 0; offset < requests.length; offset += applyBatchSize) {
+            const batch = requests.slice(offset, offset + applyBatchSize);
+            const results = await resolveReviewedRangesBatch(context, batch);
+            const failedIndex = results.findIndex(result => !result.range);
+            resolvedRanges.push(...results.flatMap(result => result.range ? [result.range] : []));
+            if (failedIndex >= 0) {
+              throw new Error(
+                results[failedIndex]!.error ??
+                "تعذر إعادة تحديد أحد مواضع النص المحدد؛ لم يُعدّل المستند."
+              );
+            }
+          }
+
+          const resolvedEntries: ResolvedApplyEntry[] = entries.map((entry, index) => ({
             ...entry,
-            range,
-            paragraphText: entry.scopeSnapshot ?? entry.expectedText
-          };
-        });
-        await applyResolvedEntries(context, resolvedEntries);
+            range: resolvedRanges[index]!,
+            paragraphText: entry.scopeSnapshot!
+          }));
+          await applyResolvedEntries(context, resolvedEntries);
+          replacementsApplied = true;
+
+          // Release scan-time hit objects and the paragraph-intersection
+          // anchors after the newly resolved ranges have been applied.
+          for (const entry of entries) {
+            if (entry.range) context.trackedObjects.remove(entry.range);
+          }
+          for (const scope of selectedScopes) context.trackedObjects.remove(scope);
+          await context.sync();
+        } catch (error) {
+          if (!replacementsApplied && resolvedRanges.length) {
+            for (const range of resolvedRanges) {
+              try { context.trackedObjects.remove(range); } catch { /* already released */ }
+            }
+            await context.sync();
+          }
+          throw error;
+        }
       });
     } else {
       await Word.run(async context => {
