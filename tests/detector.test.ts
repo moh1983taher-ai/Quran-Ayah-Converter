@@ -378,4 +378,16 @@ describe("fuzzy token alignment", () => {
     expect(matches[0]?.distance).toBe(1);
     expect(source.slice(matches[0]!.sourceStart, matches[0]!.sourceEnd)).toBe("الله لا اله هو الحي القيوم");
   });
+  it("skips fuzzy alignment when token overlap cannot meet the edit-distance bound", () => {
+    const sparseRecord: QuranAyahRecord = {
+      id: "9:1", surah: 9, ayah: 1, surahNameArabic: "التوبة",
+      uthmani: "الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ الرَّحْمَٰنِ الرَّحِيمِ مَالِكِ يَوْمِ الدِّينِ",
+      imlaei: "الحمد لله رب العالمين الرحمن الرحيم مالك يوم الدين"
+    };
+    const sparseDetector = new QuranAyahDetector(new InMemoryQuranIndex([sparseRecord]));
+    const matches = sparseDetector.detect("شرح ﴿الحمد نص عربي مختلف تماما لا يشبه بقية الآية﴾");
+    expect(matches).toHaveLength(0);
+    expect(sparseDetector.getDiagnostics().fuzzyAlignmentCalls).toBe(0);
+  });
+
 });

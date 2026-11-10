@@ -57,6 +57,12 @@ interface PassageMatch {
   replacementText?: string;
 }
 
+function countTokenValues(values: readonly string[]): ReadonlyMap<string, number> {
+  const counts = new Map<string, number>();
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+  return counts;
+}
+
 const DEFAULTS: Required<DetectorOptions> = {
   minimumUnmarkedLength: 14,
   maximumAyahsPerMatch: 8,
@@ -116,6 +122,7 @@ export class QuranAyahDetector {
   private readonly preparedRecords = new WeakMap<QuranAyahRecord, {
     imlaeiNormalized: string;
     imlaeiTokens: ReturnType<typeof tokenizeArabic>;
+    imlaeiTokenCounts: ReadonlyMap<string, number>;
     uthmaniNormalized: ReturnType<typeof normalizeArabicWithMap>;
     uthmaniTokens: ReturnType<typeof tokenizeArabic>;
   }>();
@@ -138,9 +145,11 @@ export class QuranAyahDetector {
       (a, b) => a.surah - b.surah || a.ayah - b.ayah
     );
     this.records.forEach((record, position) => {
+      const imlaeiTokens = tokenizeArabic(record.imlaei);
       const prepared = {
         imlaeiNormalized: normalizeArabicWithMap(record.imlaei).value,
-        imlaeiTokens: tokenizeArabic(record.imlaei),
+        imlaeiTokens,
+        imlaeiTokenCounts: countTokenValues(imlaeiTokens.map(token => token.value)),
         uthmaniNormalized: normalizeArabicWithMap(record.uthmani),
         uthmaniTokens: tokenizeArabic(record.uthmani)
       };
@@ -202,9 +211,11 @@ export class QuranAyahDetector {
     const cached = this.preparedRecords.get(record);
     if (cached) return cached;
     // Supports custom/dynamic QuranIndex implementations without weakening correctness.
+    const imlaeiTokens = tokenizeArabic(record.imlaei);
     const prepared = {
       imlaeiNormalized: normalizeArabicWithMap(record.imlaei).value,
-      imlaeiTokens: tokenizeArabic(record.imlaei),
+      imlaeiTokens,
+      imlaeiTokenCounts: countTokenValues(imlaeiTokens.map(token => token.value)),
       uthmaniNormalized: normalizeArabicWithMap(record.uthmani),
       uthmaniTokens: tokenizeArabic(record.uthmani)
     };
@@ -387,20 +398,41 @@ export class QuranAyahDetector {
   ): Array<{ start: number; end: number; records: QuranAyahRecord[]; evidence: MatchEvidence[]; confidence: number }> {
     const matches: Array<{ start: number; end: number; records: QuranAyahRecord[]; evidence: MatchEvidence[]; confidence: number }> = [];
     const preparedSource = prepareFuzzySource(source);
-    const candidateRecords = this.candidateRecordsForAnyToken(
-      preparedSource.tokens.map(token => token.value)
-    );
+    const sourceTokenValues = preparedSource.tokens.map(token => token.value);
+    const candidateRecords = this.candidateRecordsForAnyToken(sourceTokenValues);
+    const sourceTokenCounts = new Map<string, number>();
+    for (const token of sourceTokenValues) {
+      sourceTokenCounts.set(token, (sourceTokenCounts.get(token) ?? 0) + 1);
+    }
 
     this.diagnostics.fuzzyCandidateRecords += candidateRecords.length;
     const fuzzyStartedAt = performance.now();
     for (const record of candidateRecords) {
-      const canonicalTokens = this.prepared(record).imlaeiTokens.map(token => token.value);
+      const preparedRecord = this.prepared(record);
+      const canonicalTokens = preparedRecord.imlaeiTokens.map(token => token.value);
       // Bracketed short fragments are handled by exact contiguous matching above.
       // Fuzzy alignment needs at least four words to avoid generic false positives.
       const minimumTokens = allowShort ? 4 : 5;
       if (canonicalTokens.length < minimumTokens) continue;
 
       const maxDistance = canonicalTokens.length >= 9 ? 2 : 1;
+
+      // A Levenshtein alignment within maxDistance must contain at least
+      // canonicalLength - maxDistance exact token pairs. The multiset overlap
+      // with the whole source is an upper bound on those pairs, so candidates
+      // below that bound cannot possibly pass alignment and can be discarded
+      // without changing recall. Count duplicates on both sides: repeated
+      // Arabic words must not be treated as unlimited matches.
+      const requiredExactTokens = Math.max(
+        minimumTokens - maxDistance,
+        canonicalTokens.length - maxDistance
+      );
+      let possibleExactTokens = 0;
+      for (const [token, required] of preparedRecord.imlaeiTokenCounts) {
+        possibleExactTokens += Math.min(required, sourceTokenCounts.get(token) ?? 0);
+      }
+      if (possibleExactTokens < requiredExactTokens) continue;
+
       this.diagnostics.fuzzyAlignmentCalls += 1;
       const alignments = findFuzzyTokenAlignments(preparedSource, canonicalTokens, {
         maxDistance,
