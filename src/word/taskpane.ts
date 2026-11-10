@@ -5,6 +5,7 @@ import { createReviewItems, createScopedReviewItems, getReviewSelectionCounts, g
 import { ensureOrnamentalVerseBrackets } from "./verse-format.js";
 import { formatQuranCitation, hasMatchingQuranCitation } from "./quran-citation.js";
 import { findLegacyBracketPairs, type MatchedBracketPair } from "./bracket-normalizer.js";
+import { validateQuranCitations, type QuranCitationIssue } from "./citation-validator.js";
 
 
 declare const Office: {
@@ -1140,6 +1141,7 @@ async function applyApprovedReplacements(): Promise<void> {
 }
 
 Office.onReady(() => {
+  byId<HTMLButtonElement>("validateCitationsButton").addEventListener("click", () => void inspectQuranCitations());
   byId<HTMLButtonElement>("scanButton").addEventListener("click", () => void inspectDocument());
   byId<HTMLButtonElement>("scanSelectionButton").addEventListener("click", () => void inspectSelectedText());
   byId<HTMLButtonElement>("scanBracketsButton").addEventListener("click", () => void inspectLegacyBrackets());
