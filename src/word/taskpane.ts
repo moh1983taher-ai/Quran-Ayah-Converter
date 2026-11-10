@@ -3,7 +3,7 @@ import { normalizeArabic } from "../core/normalizer.js";
 import { loadQuranDatasetJson } from "../core/dataset-loader.js";
 import { createReviewItems, createScopedReviewItems, getReviewSelectionCounts, groupBracketedAyahMatches, setReviewDecision, type ReviewItem } from "./review-workflow.js";
 import { ensureOrnamentalVerseBrackets } from "./verse-format.js";
-import { formatQuranCitation, hasMatchingQuranCitation } from "./quran-citation.js";
+import { formatQuranCitation, hasMatchingQuranCitation, inspectAdjacentQuranCitation } from "./quran-citation.js";
 import { findLegacyBracketPairs, type MatchedBracketPair } from "./bracket-normalizer.js";
 import { validateQuranCitations, type QuranCitationIssue } from "./citation-validator.js";
 
@@ -217,7 +217,13 @@ function renderResults(): void {
     canonical.textContent = item.replacementText || "نتيجة ملتبسة؛ لا يمكن اعتمادها آليًا.";
     const evidence = document.createElement("div");
     evidence.className = "result-meta";
-    evidence.textContent = item.evidence.map(e => e.detail).join(" · ");
+    const citationEvidence = item.citationReview
+      ? `التخريج: ${item.citationReview.detail}`
+      : "";
+    evidence.textContent = [
+      ...item.evidence.map(e => e.detail),
+      ...(citationEvidence ? [citationEvidence] : [])
+    ].join(" · ");
     const label = document.createElement("label");
     label.className = "check-row";
     const checkbox = document.createElement("input");
@@ -497,6 +503,17 @@ async function inspectDocument(): Promise<void> {
             end += 1;
           }
 
+          const expectedCitation = formatQuranCitation(item.references, loaded.index);
+          const citationReview = inspectAdjacentQuranCitation(
+            paragraphText, end, expectedCitation, item.references, loaded.index
+          );
+          item.citationReview = citationReview;
+          // A clearly incorrect adjacent citation is part of this review unit.
+          // The stored range then covers verse + separator + citation, so a
+          // single guarded Word replacement repairs both without duplication.
+          if (citationReview.status === "incorrect" && citationReview.end !== undefined) {
+            end = citationReview.end;
+          }
           const stored: StoredReviewedRange = {
             paragraphIndex: index,
             start,
@@ -693,6 +710,19 @@ async function inspectSelectedText(): Promise<void> {
           if (!trackedSelectionScopes.has(segment.range)) {
             context.trackedObjects.add(segment.range);
             trackedSelectionScopes.add(segment.range);
+          }
+          const expectedCitation = formatQuranCitation(item.references, loaded.index);
+          const citationReview = inspectAdjacentQuranCitation(
+            segment.text,
+            end,
+            expectedCitation,
+            item.references,
+            loaded.index,
+            { start: 0, end: segment.text.length }
+          );
+          item.citationReview = citationReview;
+          if (citationReview.status === "incorrect" && citationReview.end !== undefined) {
+            end = citationReview.end;
           }
           const stored: StoredReviewedRange = {
             scope: "selection",
@@ -1048,12 +1078,22 @@ async function applyApprovedReplacements(): Promise<void> {
       const citation = quranIndex
         ? formatQuranCitation(entry.item.references, quranIndex)
         : undefined;
-      const citationAlreadyPresent = citation
-        ? hasMatchingQuranCitation(entry.paragraphText.slice(entry.end), citation)
-        : false;
-      const replacement = citation && !citationAlreadyPresent
-        ? `${finalVerseText} ${citation}`
-        : finalVerseText;
+      const citationReview = entry.item.citationReview;
+      let replacement = finalVerseText;
+      if (citation && addCitations) {
+        if (citationReview?.status === "missing") {
+          replacement = `${finalVerseText} ${citation}`;
+        } else if (citationReview?.status === "incorrect") {
+          replacement = `${finalVerseText} ${citation}`;
+        } else if (citationReview?.status === "correct") {
+          replacement = finalVerseText;
+        } else if (citationReview?.status === "unavailable") {
+          replacement = finalVerseText;
+        }
+      } else if (citationReview?.status === "incorrect" && citationReview.existingCitation) {
+        // Preserve an unapproved citation exactly as it appeared in the source.
+        replacement = `${finalVerseText} ${citationReview.existingCitation}`;
+      }
       const inserted = entry.range.insertText(replacement, "Replace");
       inserted.font.name = "KFGQPC HAFS Uthmanic Script";
     }
