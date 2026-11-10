@@ -44,4 +44,22 @@ describe("QuranAyahDetector with real KFGQPC Hafs v18 records", () => {
     expect(match).toBeDefined();
     expect(match?.canonicalText).toBe(kfgqpcHafsSamples[4]?.uthmani);
   });
+  it("detects Al-Baqarah 2:90 despite Uthmani small-letter and diacritic differences", () => {
+    const verse: QuranAyahRecord = {
+      id: "2:90", surah: 2, ayah: 90, surahNameArabic: "البقرة",
+      uthmani: "بِئۡسَمَا ٱشۡتَرَوۡاْ بِهِۦٓ أَنفُسَهُمۡ أَن يَكۡفُرُواْ بِمَآ أَنزَلَ ٱللَّهُ بَغۡيًا أَن يُنَزِّلَ ٱللَّهُ مِن فَضۡلِهِۦ عَلَىٰ مَن يَشَآءُ مِنۡ عِبَادِهِۦۖ فَبَآءُو بِغَضَبٍ عَلَىٰ غَضَبٖۚ وَلِلۡكَٰفِرِينَ عَذَابٞ مُّهِينٞ",
+      imlaei: "بئسما اشتروا به أنفسهم أن يكفروا بما أنزل الله بغيا أن ينزل الله من فضله على من يشاء من عباده فباءوا بغضب على غضب وللكافرين عذاب مهين"
+    };
+    const detector = new QuranAyahDetector(new InMemoryQuranIndex([verse]));
+    const quote = "بِئْسَمَا اشْتَرَوْا بِهِ أَنفُسَهُمْ أَن يَكْفُرُواْ بِمَا أَنزَلَ اللَّهُ بَغْيًا أَن يُنَزِّلَ اللَّهُ مِن فَضْلِهِ عَلَى مَن يَشَاء مِنْ عِبَادِهِ فَبَاؤُواْ بِغَضَبٍ عَلَى غَضَبٍ وَلِلْكَافِرِينَ عَذَابٌ مُّهِينٌ";
+    const text = "قال تعالى ﴿" + quote + "﴾ [البقرة: ٩٠]";
+    const match = detector.detect(text).find(item =>
+      item.references.some(reference => reference.surah === 2 && reference.ayah === 90)
+    );
+    expect(match).toBeDefined();
+    expect(match?.status).not.toBe("ambiguous");
+    expect(text.slice(match!.sourceStart, match!.sourceEnd)).toBe("﴿" + quote + "﴾");
+    expect(match?.canonicalText).toBe(verse.uthmani);
+  });
+
 });
