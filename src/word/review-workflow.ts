@@ -219,3 +219,19 @@ export function buildApprovedReplacements(
       };
     });
 }
+
+
+/** Counts the review items that can be selected and those currently approved. */
+export function getReviewSelectionCounts(items: readonly ReviewItem[]): {
+  selectableCount: number;
+  approvedCount: number;
+} {
+  return {
+    selectableCount: items.filter(item =>
+      item.decision !== "applied" &&
+      item.status !== "ambiguous" &&
+      Boolean(item.replacementText.trim())
+    ).length,
+    approvedCount: items.filter(item => item.decision === "approved").length
+  };
+}

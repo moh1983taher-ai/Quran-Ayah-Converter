@@ -1,7 +1,7 @@
 import { QuranAyahDetector } from "../core/detector.js";
 import { normalizeArabic } from "../core/normalizer.js";
 import { loadQuranDatasetJson } from "../core/dataset-loader.js";
-import { createReviewItems, groupBracketedAyahMatches, setReviewDecision, type ReviewItem } from "./review-workflow.js";
+import { createReviewItems, getReviewSelectionCounts, groupBracketedAyahMatches, setReviewDecision, type ReviewItem } from "./review-workflow.js";
 import { ensureOrnamentalVerseBrackets } from "./verse-format.js";
 import { formatQuranCitation, hasMatchingQuranCitation } from "./quran-citation.js";
 import { findLegacyBracketPairs, type MatchedBracketPair } from "./bracket-normalizer.js";
@@ -28,7 +28,7 @@ interface WordRange {
   search(query: string, options: { matchCase: boolean; matchWholeWord: boolean }): WordCollection<WordRange>;
 }
 interface WordParagraph { text: string; getRange(location?: "Content" | "Whole"): WordRange; }
-interface WordContext { document: { body: { paragraphs: WordCollection<WordParagraph>; tables: WordCollection<unknown>; } }; trackedObjects: { add(object: WordRange): void; remove(object: WordRange): void; }; sync(): Promise<void>; }
+interface WordContext { document: { getSelection(): WordRange; body: { paragraphs: WordCollection<WordParagraph>; tables: WordCollection<unknown>; } }; trackedObjects: { add(object: WordRange): void; remove(object: WordRange): void; }; sync(): Promise<void>; }
 
 const byId = <T extends HTMLElement>(id: string): T => {
   const element = document.getElementById(id);
@@ -38,6 +38,8 @@ const byId = <T extends HTMLElement>(id: string): T => {
 let reviewItems: ReviewItem[] = [];
 interface StoredReviewedRange {
   range?: WordRange;
+  scope?: "selection";
+  scopeSnapshot?: string;
   paragraphIndex: number;
   start: number;
   end: number;
@@ -167,13 +169,13 @@ async function loadDataset() {
   return loaded;
 }
 function updateApplyButton(): void {
-  const count = reviewItems.filter(item => item.decision === "approved").length;
-  const selectableCount = reviewItems.filter(item =>
-    item.decision !== "applied" && item.status !== "ambiguous" && Boolean(item.replacementText.trim())
-  ).length;
+  const { approvedCount: count, selectableCount } = getReviewSelectionCounts(reviewItems);
   const selectAllButton = byId<HTMLButtonElement>("selectAll");
   selectAllButton.disabled = selectableCount === 0;
   selectAllButton.textContent = selectableCount ? `تحديد الكل (${selectableCount})` : "تحديد الكل";
+  const selectNoneButton = byId<HTMLButtonElement>("selectNone");
+  selectNoneButton.disabled = count === 0;
+  selectNoneButton.textContent = count ? `إلغاء التحديد (${count})` : "إلغاء التحديد";
   const button = byId<HTMLButtonElement>("applyButton");
   button.disabled = count === 0;
   button.textContent = count ? `اعتماد ${count} وحدة للمراجعة النهائية ←` : "اعتماد المحدد ←";
@@ -240,7 +242,7 @@ function renderResults(): void {
 }
 async function releaseReviewedRanges(): Promise<void> {
   const entries = [...itemRanges.values()];
-  const trackedRanges = entries.flatMap(entry => entry.range ? [entry.range] : []);
+  const trackedRanges = [...new Set(entries.flatMap(entry => entry.range ? [entry.range] : []))];
   if (trackedRanges.length) {
     await Word.run(trackedRanges, async context => {
       for (const range of trackedRanges) context.trackedObjects.remove(range);
@@ -513,7 +515,7 @@ async function inspectDocument(): Promise<void> {
       for (let offset = 0; offset < pendingRangeRequests.length; offset += scanBatchSize) {
         const batch = pendingRangeRequests.slice(offset, offset + scanBatchSize);
         const resolved = await resolveReviewedRangesBatch(context, batch.map(entry => ({
-          paragraph: entry.paragraph,
+          searchScope: entry.paragraph.getRange("Content"),
           snapshot: entry.snapshot,
           start: entry.stored.start,
           end: entry.stored.end
@@ -563,6 +565,149 @@ async function inspectDocument(): Promise<void> {
   }
 }
 
+
+async function inspectSelectedText(): Promise<void> {
+  const scanStartedAt = performance.now();
+  const metrics: ScanDiagnostics = {
+    totalMs: 0, datasetMs: 0, wordReadMs: 0, detectionMs: 0,
+    rangeMs: 0, renderMs: 0, paragraphCount: 0, characterCount: 0,
+    detectedCount: 0, rangeRequestCount: 0, resolvedRangeCount: 0
+  };
+  const button = byId<HTMLButtonElement>("scanSelectionButton");
+  button.disabled = true;
+  button.textContent = "جارٍ فحص النص المحدد…";
+  updateScanProgress("تحميل قاعدة المصحف", 0, 0, "التحقق من بيانات حفص قبل البحث");
+  setStatus("جارٍ فحص النص المحدد", "سيُفحص النص المظلل في مستند Word دون المساس ببقية المستند", "يفحص");
+
+  try {
+    const datasetStartedAt = performance.now();
+    await releaseReviewedRanges();
+    reviewItems = [];
+    itemRanges.clear();
+    renderResults();
+    datasetPromise ??= loadDataset();
+    const loaded = await datasetPromise;
+    metrics.datasetMs = performance.now() - datasetStartedAt;
+
+    await Word.run(async context => {
+      const wordReadStartedAt = performance.now();
+      const selection = context.document.getSelection().load("text");
+      await context.sync();
+      const selectionText = selection.text;
+      if (!selectionText.trim()) {
+        throw new Error("لم يُحدّد نص في مستند Word. ظلّل النص المراد فحصه ثم أعد المحاولة.");
+      }
+
+      metrics.wordReadMs = performance.now() - wordReadStartedAt;
+      metrics.paragraphCount = (selectionText.match(/[\r\n]/gu) ?? []).length + 1;
+      metrics.characterCount = selectionText.length;
+
+      const detectionStartedAt = performance.now();
+      const detector = new QuranAyahDetector(loaded.index);
+      updateScanProgress("كشف الآيات في النص المحدد", 0, 1);
+      const detected = detector.detect(selectionText);
+      const grouped = groupBracketedAyahMatches(selectionText, detected);
+      reviewItems = createReviewItems(selectionText, grouped).map(item => ({
+        ...item,
+        id: `selection:${item.id}`,
+        replacementText: `﴿${item.replacementText}﴾`,
+        evidence: [...item.evidence, {
+          type: "context" as const,
+          detail: "ضمن النص المحدد في مستند Word"
+        }]
+      }));
+      metrics.detectionMs = performance.now() - detectionStartedAt;
+      metrics.detector = detector.getDiagnostics();
+      metrics.detectedCount = reviewItems.length;
+
+      const pending: Array<{ item: ReviewItem; stored: StoredReviewedRange }> = [];
+      const bracketPairs: ReadonlyArray<readonly [string, string]> = [
+        ["﴿", "﴾"],
+        ["", ""]
+      ];
+      for (const item of reviewItems) {
+        if (item.status === "ambiguous" || !item.replacementText.trim()) continue;
+        let start = item.sourceStart;
+        let end = item.sourceEnd;
+        if (bracketPairs.some(([left, right]) =>
+          selectionText[start - 1] === left && selectionText[end] === right
+        )) {
+          start -= 1;
+          end += 1;
+        }
+        const stored: StoredReviewedRange = {
+          scope: "selection",
+          scopeSnapshot: selectionText,
+          paragraphIndex: -1,
+          start,
+          end,
+          expectedText: selectionText.slice(start, end)
+        };
+        itemRanges.set(item.id, stored);
+        pending.push({ item, stored });
+      }
+
+      metrics.rangeRequestCount = pending.length;
+      const rangeStartedAt = performance.now();
+      updateScanProgress("تثبيت مواضع الآيات داخل النص المحدد", 0, pending.length);
+      const scanBatchSize = 60;
+      for (let offset = 0; offset < pending.length; offset += scanBatchSize) {
+        const batch = pending.slice(offset, offset + scanBatchSize);
+        const resolved = await resolveReviewedRangesBatch(context, batch.map(entry => ({
+          searchScope: selection,
+          snapshot: selectionText,
+          start: entry.stored.start,
+          end: entry.stored.end
+        })));
+        resolved.forEach((result, index) => {
+          const entry = batch[index]!;
+          if (result.range) {
+            entry.stored.range = result.range;
+          } else {
+            entry.item.evidence.push({
+              type: "context",
+              detail: `تعذر تثبيت موضع النص المحدد: ${result.error ?? "تعذر التحقق من النطاق"}`
+            });
+          }
+        });
+        updateScanProgress(
+          "تثبيت مواضع الآيات داخل النص المحدد",
+          Math.min(offset + batch.length, pending.length),
+          pending.length
+        );
+        await yieldToUi();
+      }
+      metrics.rangeMs = performance.now() - rangeStartedAt;
+      metrics.resolvedRangeCount = pending.filter(entry => Boolean(entry.stored.range)).length;
+
+      const renderStartedAt = performance.now();
+      renderResults();
+      metrics.renderMs = performance.now() - renderStartedAt;
+      updateScanProgress("اكتمل فحص النص المحدد", 1, 1);
+      setStatus(
+        "اكتمل فحص النص المحدد",
+        `${metrics.characterCount.toLocaleString("ar")} محرف · ${reviewItems.length.toLocaleString("ar")} وحدة مراجعة`,
+        "اكتمل"
+      );
+      if (!reviewItems.length) {
+        byId("emptyState").querySelector("strong")!.textContent = "لم نعثر على اقتباسات";
+        byId("emptyState").querySelector("p")!.textContent = "لم تظهر مطابقات قرآنية في النص المحدد.";
+      }
+      toast(`اكتمل فحص النص المحدد: ${reviewItems.length} نتيجة. لم يتغير المستند.`);
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    updateScanProgress("توقف فحص النص المحدد", 0, 0, message);
+    setStatus("تعذر فحص النص المحدد", message, "توقف");
+    toast(message);
+  } finally {
+    metrics.totalMs = performance.now() - scanStartedAt;
+    renderScanDiagnostics(metrics);
+    button.disabled = false;
+    button.textContent = "فحص النص المحدد";
+  }
+}
+
 /**
  * Build the exact reviewed range from Word's absolute character positions.
  * No Search API, anchors, or paragraph reconstruction are used.
@@ -585,7 +730,7 @@ function countAnchorOccurrencesBefore(text: string, anchor: string, offset: numb
 }
 
 interface RangeRequest {
-  paragraph: WordParagraph;
+  searchScope: WordRange;
   snapshot: string;
   start: number;
   end: number;
@@ -622,7 +767,7 @@ async function resolveReviewedRangesBatch(
     if (expected.length <= 240) {
       return {
         request, expected,
-        shortMatches: request.paragraph.getRange("Content")
+        shortMatches: request.searchScope
           .search(expected, { matchCase: true, matchWholeWord: false }).load("items")
       };
     }
@@ -633,9 +778,9 @@ async function resolveReviewedRangesBatch(
       request, expected, prefix, suffix,
       prefixOccurrence: countAnchorOccurrencesBefore(request.snapshot, prefix, request.start),
       suffixOccurrence: countAnchorOccurrencesBefore(request.snapshot, suffix, request.end - chunkLength),
-      prefixMatches: request.paragraph.getRange("Content")
+      prefixMatches: request.searchScope
         .search(prefix, { matchCase: true, matchWholeWord: false }).load("items"),
-      suffixMatches: request.paragraph.getRange("Content")
+      suffixMatches: request.searchScope
         .search(suffix, { matchCase: true, matchWholeWord: false }).load("items")
     };
   });
@@ -714,6 +859,7 @@ async function resolveReviewedRangesBatch(
 }
 
 
+
 async function applyApprovedReplacements(): Promise<void> {
   const approved = reviewItems.filter(item => item.decision === "approved");
   if (!approved.length) return;
@@ -725,89 +871,127 @@ async function applyApprovedReplacements(): Promise<void> {
 
   const entries = approved.map(item => {
     const stored = itemRanges.get(item.id);
-    if (!stored) throw new Error("بيانات موضع الآية غير موجودة؛ أعد فحص المستند.");
+    if (!stored) throw new Error("بيانات موضع الآية غير موجودة؛ أعد فحص النص.");
     return { item, ...stored };
   });
+  type ApplyEntry = typeof entries[number];
+  type ResolvedApplyEntry = ApplyEntry & { range: WordRange; paragraphText: string };
 
   const button = byId<HTMLButtonElement>("applyButton");
   button.disabled = true;
-  setStatus("جارٍ إعادة تحديد المواضع", "التحقق من النص داخل الفقرات قبل أي تعديل", "يتحقق");
-  try {
-    await Word.run(async context => {
-      const paragraphs = context.document.body.paragraphs.load("items");
-      await context.sync();
+  setStatus("جارٍ إعادة تحديد المواضع", "التحقق من النص قبل أي تعديل", "يتحقق");
 
-      const currentRanges = entries.map(entry => {
-        const paragraph = paragraphs.items[entry.paragraphIndex];
-        if (!paragraph) throw new Error("لم تعد الفقرة الأصلية موجودة؛ أُلغي الاستبدال.");
-        return paragraph.getRange("Content").load("text");
-      });
-      await context.sync();
-
-      const rangeRequests = entries.map((entry, index) => {
-        const paragraph = paragraphs.items[entry.paragraphIndex]!;
-        const currentText = currentRanges[index]!.text;
-        if (currentText.slice(entry.start, entry.end) !== entry.expectedText) {
-          throw new Error("تغير النص أو موضع إحدى الآيات بعد الفحص؛ أُلغي الاستبدال حمايةً للمستند.");
-        }
-        return { paragraph, snapshot: currentText, start: entry.start, end: entry.end };
-      });
-      const resolvedRanges: WordRange[] = [];
-      const applyBatchSize = 60;
-      try {
-        for (let offset = 0; offset < rangeRequests.length; offset += applyBatchSize) {
-          const batch = rangeRequests.slice(offset, offset + applyBatchSize);
-          const results = await resolveReviewedRangesBatch(context, batch);
-          const failed = results.find(result => !result.range);
-          if (failed) {
-            throw new Error(failed.error ?? "تعذر التحقق من أحد مواضع الآيات؛ لم يُعدّل المستند.");
-          }
-          resolvedRanges.push(...results.map(result => result.range!));
-        }
-      } catch (error) {
-        // No document edits have been queued yet. Release ranges tracked by
-        // earlier successful batches before aborting the all-or-nothing apply.
-        for (const range of resolvedRanges) context.trackedObjects.remove(range);
-        if (resolvedRanges.length) await context.sync();
-        throw error;
+  const applyResolvedEntries = async (
+    context: WordContext,
+    resolvedEntries: ResolvedApplyEntry[]
+  ): Promise<void> => {
+    const ordered = [...resolvedEntries].sort((a, b) =>
+      a.paragraphIndex - b.paragraphIndex || b.start - a.start
+    );
+    for (let i = 1; i < ordered.length; i += 1) {
+      const previous = ordered[i - 1]!;
+      const current = ordered[i]!;
+      if (previous.paragraphIndex === current.paragraphIndex &&
+          current.end > previous.start) {
+        throw new Error("تداخل نطاقا آيتين معتمدتين؛ أُلغي التنفيذ حمايةً للمستند.");
       }
-      const resolvedEntries: Array<typeof entries[number] & { range: WordRange; paragraphText: string }> =
-        entries.map((entry, index) => ({
+    }
+
+    for (const entry of ordered) {
+      const finalVerseText = ensureOrnamentalVerseBrackets(entry.item.replacementText);
+      const citation = quranIndex
+        ? formatQuranCitation(entry.item.references, quranIndex)
+        : undefined;
+      const citationAlreadyPresent = citation
+        ? hasMatchingQuranCitation(entry.paragraphText.slice(entry.end), citation)
+        : false;
+      const replacement = citation && !citationAlreadyPresent
+        ? `${finalVerseText} ${citation}`
+        : finalVerseText;
+      const inserted = entry.range.insertText(replacement, "Replace");
+      inserted.font.name = "KFGQPC HAFS Uthmanic Script";
+    }
+    await context.sync();
+    for (const entry of resolvedEntries) context.trackedObjects.remove(entry.range);
+    await context.sync();
+  };
+
+  try {
+    const selectedScope = entries.some(entry => entry.scope === "selection");
+    if (selectedScope) {
+      if (entries.some(entry => entry.scope !== "selection" || !entry.range)) {
+        throw new Error("تعذر تثبيت أحد مواضع النص المحدد. أعد فحص النص قبل الاستبدال.");
+      }
+      const trackedRanges = entries.map(entry => entry.range!);
+      await Word.run(trackedRanges, async context => {
+        for (const range of trackedRanges) range.load("text");
+        await context.sync();
+
+        const resolvedEntries: ResolvedApplyEntry[] = entries.map((entry, index) => {
+          const range = trackedRanges[index]!;
+          if (range.text !== entry.expectedText) {
+            throw new Error("تغير نص إحدى الآيات المحددة بعد الفحص؛ أُلغي الاستبدال حمايةً للمستند.");
+          }
+          return {
+            ...entry,
+            range,
+            paragraphText: entry.scopeSnapshot ?? entry.expectedText
+          };
+        });
+        await applyResolvedEntries(context, resolvedEntries);
+      });
+    } else {
+      await Word.run(async context => {
+        const paragraphs = context.document.body.paragraphs.load("items");
+        await context.sync();
+
+        const currentRanges = entries.map(entry => {
+          const paragraph = paragraphs.items[entry.paragraphIndex];
+          if (!paragraph) throw new Error("لم تعد الفقرة الأصلية موجودة؛ أُلغي الاستبدال.");
+          return paragraph.getRange("Content").load("text");
+        });
+        await context.sync();
+
+        const rangeRequests = entries.map((entry, index) => {
+          const paragraph = paragraphs.items[entry.paragraphIndex]!;
+          const currentText = currentRanges[index]!.text;
+          if (currentText.slice(entry.start, entry.end) !== entry.expectedText) {
+            throw new Error("تغير النص أو موضع إحدى الآيات بعد الفحص؛ أُلغي الاستبدال حمايةً للمستند.");
+          }
+          return {
+            searchScope: paragraph.getRange("Content"),
+            snapshot: currentText,
+            start: entry.start,
+            end: entry.end
+          };
+        });
+
+        const resolvedRanges: WordRange[] = [];
+        const applyBatchSize = 60;
+        try {
+          for (let offset = 0; offset < rangeRequests.length; offset += applyBatchSize) {
+            const batch = rangeRequests.slice(offset, offset + applyBatchSize);
+            const results = await resolveReviewedRangesBatch(context, batch);
+            const failed = results.find(result => !result.range);
+            if (failed) {
+              throw new Error(failed.error ?? "تعذر التحقق من أحد مواضع الآيات؛ لم يُعدّل المستند.");
+            }
+            resolvedRanges.push(...results.map(result => result.range!));
+          }
+        } catch (error) {
+          for (const range of resolvedRanges) context.trackedObjects.remove(range);
+          if (resolvedRanges.length) await context.sync();
+          throw error;
+        }
+
+        const resolvedEntries: ResolvedApplyEntry[] = entries.map((entry, index) => ({
           ...entry,
           range: resolvedRanges[index]!,
           paragraphText: currentRanges[index]!.text
         }));
-
-      const ordered = [...resolvedEntries].sort((a, b) =>
-        a.paragraphIndex - b.paragraphIndex || b.start - a.start
-      );
-      for (let i = 1; i < ordered.length; i += 1) {
-        const previous = ordered[i - 1]!;
-        const current = ordered[i]!;
-        if (previous.paragraphIndex === current.paragraphIndex &&
-            current.end > previous.start) {
-          throw new Error("تداخل نطاقا آيتين معتمدتين؛ أُلغي التنفيذ حمايةً للمستند.");
-        }
-      }
-
-      for (const entry of ordered) {
-        const finalVerseText = ensureOrnamentalVerseBrackets(entry.item.replacementText);
-        const citation = quranIndex
-          ? formatQuranCitation(entry.item.references, quranIndex)
-          : undefined;
-        const citationAlreadyPresent = citation
-          ? hasMatchingQuranCitation(entry.paragraphText.slice(entry.end), citation)
-          : false;
-        const replacement = citation && !citationAlreadyPresent
-          ? `${finalVerseText} ${citation}`
-          : finalVerseText;
-        const inserted = entry.range.insertText(replacement, "Replace");
-        inserted.font.name = "KFGQPC HAFS Uthmanic Script";
-      }
-      await context.sync();
-      for (const entry of resolvedEntries) context.trackedObjects.remove(entry.range);
-      await context.sync();
-    });
+        await applyResolvedEntries(context, resolvedEntries);
+      });
+    }
 
     for (const item of approved) itemRanges.delete(item.id);
     reviewItems = reviewItems.map(item =>
@@ -824,8 +1008,10 @@ async function applyApprovedReplacements(): Promise<void> {
     button.disabled = reviewItems.every(item => item.decision !== "approved");
   }
 }
+
 Office.onReady(() => {
   byId<HTMLButtonElement>("scanButton").addEventListener("click", () => void inspectDocument());
+  byId<HTMLButtonElement>("scanSelectionButton").addEventListener("click", () => void inspectSelectedText());
   byId<HTMLButtonElement>("scanBracketsButton").addEventListener("click", () => void inspectLegacyBrackets());
   byId<HTMLButtonElement>("applyBracketsButton").addEventListener("click", () => void applyLegacyBracketNormalization());
   byId<HTMLButtonElement>("cancelBracketsButton").addEventListener("click", cancelBracketPreview);
