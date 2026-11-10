@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { QuranAyahDetector } from "../src/core/detector.js";
 import { InMemoryQuranIndex } from "../src/core/quran-index.js";
 import { kfgqpcHafsSamples } from "./fixtures/kfgqpc-hafs-samples.js";
+import type { QuranAyahRecord } from "../src/core/types.js";
 
 describe("QuranAyahDetector with real KFGQPC Hafs v18 records", () => {
   const detector = new QuranAyahDetector(new InMemoryQuranIndex(kfgqpcHafsSamples));
