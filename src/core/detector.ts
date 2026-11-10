@@ -269,11 +269,22 @@ export class QuranAyahDetector {
       while (cursor < text.length) {
         const start = text.indexOf(open, cursor);
         if (start < 0) break;
-        const endMarker = text.indexOf(close, start + open.length);
+        const endMarker = findMatchingBracketEnd(text, open, close, start);
         if (endMarker < 0) break;
         const contentStart = start + open.length;
         const contentEnd = endMarker;
-        const content = text.slice(contentStart, contentEnd);
+        const rawContent = text.slice(contentStart, contentEnd);
+        // Nested delimiters make the quotation's intended boundaries uncertain.
+        // Do not salvage inner or partial matches from this structurally ambiguous
+        // span; a later explicit correction can safely resolve it.
+        if (containsBracketPair(rawContent)) {
+          cursor = endMarker + close.length;
+          continue;
+        }
+        // Inner Qur'anic delimiters are structural, not lexical content.
+        // Mask them with spaces (same UTF-16 length) so a full quoted ayah
+        // remains one continuous matching unit and source offsets stay stable.
+        const content = maskBracketMarkers(rawContent);
         const bracketStartedAt = performance.now();
         const matches = this.matchBracketedPassage(content, records);
         this.diagnostics.bracketPassageMs += performance.now() - bracketStartedAt;
@@ -310,6 +321,9 @@ export class QuranAyahDetector {
 
     // Third: all unmarked quotations, not just the single longest match.
     for (const unmarked of this.matchAllPassages(text, records)) {
+      // A bracketed quotation is one atomic matching unit. Never let the
+      // unmarked scanner salvage a shorter fuzzy window from inside it.
+      if (isInsideBracketedQuotation(text, unmarked.start, unmarked.end)) continue;
       if (unmarked.end - unmarked.start < this.options.minimumUnmarkedLength) continue;
       candidates.push({
         start: unmarked.start,
@@ -579,6 +593,9 @@ export class QuranAyahDetector {
         for (const record of exactCandidates) {
           const preparedRecord = this.prepared(record);
           const imlaeiTokens = preparedRecord.imlaeiTokens;
+          // A short phrase may be an excerpt from a longer ayah, but a
+          // quotation longer than this candidate cannot be attributed to it.
+          if (sourceValues.length > imlaeiTokens.length) continue;
           const uthmaniTokens = preparedRecord.uthmaniTokens;
 
           // Search the normalized Uthmani string as a whole before token
@@ -757,6 +774,46 @@ export class QuranAyahDetector {
           }
         }
       }
+    }
+
+    // A bracketed quotation is matched as a whole passage. Do not search
+    // for a shorter canonical ayah *inside* a longer quotation: that was the
+    // route that allowed an inner phrase to be stolen by another surah.
+    // Exact excerpts (source inside ayah) and bounded fuzzy excerpts have
+    // already been considered above. Preserve exact multi-ayah quotations by
+    // accepting only equality with a contiguous sequence of complete ayahs.
+    if (allowShort) {
+      const sourceValue = normalizedText.trim();
+      const sourceTokens = tokenizeArabic(source).map(token => token.value);
+      const starts = sourceTokens.length
+        ? this.candidateRecordsForAnyToken(sourceTokens)
+        : [];
+      for (const startRecord of starts) {
+        const index = this.recordPositions.get(startRecord) ?? records.indexOf(startRecord);
+        if (index < 0) continue;
+        const group: QuranAyahRecord[] = [];
+        let combined = "";
+        for (let j = index; j < records.length && group.length < this.options.maximumAyahsPerMatch; j += 1) {
+          const current = records[j];
+          if (!current) break;
+          if (group.length > 0) {
+            const previous = group[group.length - 1]!;
+            if (current.surah !== previous.surah || current.ayah !== previous.ayah + 1) break;
+          }
+          group.push(current);
+          combined += (combined ? " " : "") + this.prepared(current).imlaeiNormalized;
+          if (combined === sourceValue) {
+            return [{
+              start: 0,
+              end: source.length,
+              records: [...group],
+              evidence: [{ type: "exact-text", detail: "تطابق كامل لمجموعة آيات متتابعة" }],
+              confidence: 0.995
+            }];
+          }
+        }
+      }
+      return [];
     }
 
     let best: {
@@ -1036,7 +1093,13 @@ function tokenEditDistance(
     current[0] = row;
     let rowMinimum = current[0]!;
     for (let column = 1; column <= right.length; column += 1) {
-      const substitution = previous[column - 1]! + (left[row - 1] === right[column - 1] ? 0 : 1);
+      // At word level, allow only a one-character insertion/deletion inside
+      // a token (e.g. a dropped final alif), never a character substitution.
+      const sameOrOneCharacterInsertionDeletion =
+        left[row - 1] === right[column - 1] ||
+        differsByOneInsertedCharacter(left[row - 1]!, right[column - 1]!);
+      const substitution = previous[column - 1]! +
+        (sameOrOneCharacterInsertionDeletion ? (left[row - 1] === right[column - 1] ? 0 : 1) : maximumDistance + 1);
       current[column] = Math.min(
         previous[column]! + 1,
         current[column - 1]! + 1,
@@ -1048,6 +1111,71 @@ function tokenEditDistance(
     previous = current;
   }
   return previous[right.length]!;
+}
+
+function differsByOneInsertedCharacter(left: string, right: string): boolean {
+  if (Math.abs(left.length - right.length) !== 1) return false;
+  const shorter = left.length < right.length ? left : right;
+  const longer = left.length < right.length ? right : left;
+  let shortIndex = 0;
+  let longIndex = 0;
+  let skipped = false;
+  while (shortIndex < shorter.length && longIndex < longer.length) {
+    if (shorter[shortIndex] === longer[longIndex]) {
+      shortIndex += 1;
+      longIndex += 1;
+    } else if (skipped) {
+      return false;
+    } else {
+      skipped = true;
+      longIndex += 1;
+    }
+  }
+  return true;
+}
+
+function findMatchingBracketEnd(text: string, open: string, close: string, start: number): number {
+  let depth = 1;
+  let cursor = start + open.length;
+  while (cursor < text.length) {
+    const nextOpen = text.indexOf(open, cursor);
+    const nextClose = text.indexOf(close, cursor);
+    if (nextClose < 0) return -1;
+    if (nextOpen >= 0 && nextOpen < nextClose) {
+      depth += 1;
+      cursor = nextOpen + open.length;
+      continue;
+    }
+    depth -= 1;
+    if (depth === 0) return nextClose;
+    cursor = nextClose + close.length;
+  }
+  return -1;
+}
+
+function containsBracketPair(content: string): boolean {
+  return BRACKET_PAIRS.some(([open]) => content.includes(open));
+}
+
+function maskBracketMarkers(content: string): string {
+  const markers = new Set(BRACKET_PAIRS.flatMap(([open, close]) => [open, close]));
+  return [...content].map(character => markers.has(character) ? " " : character).join("");
+}
+
+function isInsideBracketedQuotation(text: string, start: number, end: number): boolean {
+  for (const [open, close] of BRACKET_PAIRS) {
+    let cursor = 0;
+    while (cursor < text.length) {
+      const opening = text.indexOf(open, cursor);
+      if (opening < 0) break;
+      const closing = findMatchingBracketEnd(text, open, close, opening);
+      if (closing < 0) break;
+      const contentStart = opening + open.length;
+      if (start >= contentStart && end <= closing) return true;
+      cursor = closing + close.length;
+    }
+  }
+  return false;
 }
 
 function isBracketPadding(value: string): boolean {

@@ -35,7 +35,22 @@ export function tokenizeNormalized(normalized: NormalizedText): AlignmentToken[]
     const start = match.index ?? 0;
     const end = start + match[0].length;
     const mapped = mapNormalizedRange(normalized, start, end);
-    if (mapped) tokens.push({ value: match[0], start: mapped.start, end: mapped.end });
+    if (!mapped) continue;
+
+    const previous = tokens[tokens.length - 1];
+    if (
+      previous?.value === "يا" &&
+      /^\s*$/u.test(normalized.sourceText.slice(previous.end, mapped.start))
+    ) {
+      // Treat the vocative particle plus its following word as one matching
+      // token: "يا آدم"/"ياآدم" and "يا أيها"/"ياأيها".
+      // Normalize the common written variants "يا آدم"/"ياآدم"
+      // and "يا أيها"/"ياأيها" to the same vocative token.
+      previous.value += match[0].startsWith("ا") ? match[0].slice(1) : match[0];
+      previous.end = mapped.end;
+    } else {
+      tokens.push({ value: match[0], start: mapped.start, end: mapped.end });
+    }
   }
   return tokens;
 }
@@ -53,6 +68,27 @@ export function prepareFuzzySource(source: string): PreparedFuzzySource {
   });
 
   return { normalized, tokens, positions };
+}
+
+function differsByOneInsertedCharacter(left: string, right: string): boolean {
+  if (Math.abs(left.length - right.length) !== 1) return false;
+  const shorter = left.length < right.length ? left : right;
+  const longer = left.length < right.length ? right : left;
+  let shortIndex = 0;
+  let longIndex = 0;
+  let skipped = false;
+  while (shortIndex < shorter.length && longIndex < longer.length) {
+    if (shorter[shortIndex] === longer[longIndex]) {
+      shortIndex += 1;
+      longIndex += 1;
+    } else if (skipped) {
+      return false;
+    } else {
+      skipped = true;
+      longIndex += 1;
+    }
+  }
+  return true;
 }
 
 /** Levenshtein alignment over word tokens. */
@@ -73,10 +109,12 @@ export function alignTokenSequence(
   for (let i = 1; i < rows; i += 1) {
     for (let j = 1; j < columns; j += 1) {
       const equal = canonicalTokens[i - 1] === sourceTokens[j - 1]?.value;
+      const tokenInsertionDeletion = !equal &&
+        differsByOneInsertedCharacter(canonicalTokens[i - 1]!, sourceTokens[j - 1]!.value);
       matrix[i]![j] = Math.min(
         matrix[i - 1]![j]! + 1,
         matrix[i]![j - 1]! + 1,
-        matrix[i - 1]![j - 1]! + (equal ? 0 : 1)
+        matrix[i - 1]![j - 1]! + (equal ? 0 : tokenInsertionDeletion ? 1 : canonicalTokens.length + sourceTokens.length)
       );
     }
   }
