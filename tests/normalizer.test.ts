@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { tokenizeArabic, tokenForms } from "../src/core/alignment.js";
+import { findFuzzyTokenAlignments, tokenizeArabic, tokenForms } from "../src/core/alignment.js";
 import {
   mapNormalizedRange,
   normalizeArabic,
@@ -23,6 +23,14 @@ describe("Arabic normalization", () => {
     const halal = tokenizeArabic("حَلَٰلٗا")[0]!;
     expect(halal.value).toBe("حللا");
     expect(tokenForms(halal)).toContain("حلالا");
+    expect(findFuzzyTokenAlignments("حَلَٰلٗا", "حلالا", {
+      maxDistance: 0,
+      minimumTokens: 1
+    })).toHaveLength(1);
+    expect(findFuzzyTokenAlignments("حلالا", "حَلَٰلٗا", {
+      maxDistance: 0,
+      minimumTokens: 1
+    })).toHaveLength(1);
 
     const rahman = tokenizeArabic("الرَّحْمَٰنُ")[0]!;
     expect(rahman.value).toBe("الرحمن");
