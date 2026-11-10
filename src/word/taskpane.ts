@@ -610,7 +610,7 @@ async function inspectSelectedText(): Promise<void> {
         paragraphIndex: index,
         range: paragraph.getRange("Content")
           .intersectWithOrNullObject(selection)
-          .load("text,isNullObject")
+          .load("text")
       }));
       updateScanProgress(
         "قراءة فقرات النص المحدد",
