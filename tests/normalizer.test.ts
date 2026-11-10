@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { tokenizeArabic } from "../src/core/alignment.js";
+import { findFuzzyTokenAlignments, tokenizeArabic } from "../src/core/alignment.js";
 import {
   mapNormalizedRange,
   normalizeArabic,
@@ -13,6 +13,32 @@ describe("Arabic normalization", () => {
 
   it("normalizes common alef variants and alef maksura", () => {
     expect(normalizeArabic("إِلَىٰ أَنْ")).toBe("الي ان");
+  });
+
+  it("does not convert small waw or small ya to alif", () => {
+    expect(normalizeArabic("ۥۦ")).toBe("");
+  });
+
+  it("aligns joined vocative forms containing dagger alif with spaced imlaei forms", () => {
+    expect(tokenizeArabic("يَٰٓـَٔادَمُ").map(token => token.value))
+      .toEqual(tokenizeArabic("يا آدم").map(token => token.value));
+    expect(tokenizeArabic("يَٰٓأَيُّهَا").map(token => token.value))
+      .toEqual(tokenizeArabic("يا أيها").map(token => token.value));
+  });
+
+  it("matches dagger-alif spellings against either orthographic counterpart", () => {
+    expect(normalizeArabic("الرَّحْمَٰنُ")).toBe("الرحمن");
+    expect(normalizeArabic("إِلَىٰ")).toBe("الي");
+    expect(normalizeArabic("حَلَٰلٗا")).toBe("حللا");
+
+    expect(findFuzzyTokenAlignments("حَلَٰلٗا", "حلالا", {
+      maxDistance: 0,
+      minimumTokens: 1
+    })).toHaveLength(1);
+    expect(findFuzzyTokenAlignments("حلالا", "حَلَٰلٗا", {
+      maxDistance: 0,
+      minimumTokens: 1
+    })).toHaveLength(1);
   });
 
   it("normalizes Arabic presentation ligatures and removes invisible format controls", () => {
