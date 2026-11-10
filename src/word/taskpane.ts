@@ -53,6 +53,10 @@ interface StoredReviewedRange {
 }
 const itemRanges = new Map<string, StoredReviewedRange>();
 let datasetPromise: Promise<ReturnType<typeof loadQuranDatasetJson>> | undefined;
+type ApplyFeedbackState = "idle" | "running" | "completed" | "failed";
+let applyFeedbackState: ApplyFeedbackState = "idle";
+let applyFeedbackSummary = "";
+let applyFeedbackError = "";
 const toast = (message: string): void => {
   const node = byId<HTMLDivElement>("toast");
   node.textContent = message;
@@ -174,6 +178,28 @@ async function loadDataset() {
   if (loaded.index.size !== 6236) throw new Error("قاعدة المصحف غير مكتملة؛ أوقفنا الفحص حمايةً للنص.");
   return loaded;
 }
+function setApplyButtonDisplay(label: string, detail: string, title = ""): void {
+  byId<HTMLElement>("applyButtonLabel").textContent = label;
+  byId<HTMLElement>("applyButtonDetail").textContent = detail;
+  byId<HTMLButtonElement>("applyButton").title = title || [label, detail].filter(Boolean).join(" — ");
+}
+
+function resetApplyFeedback(): void {
+  applyFeedbackState = "idle";
+  applyFeedbackSummary = "";
+  applyFeedbackError = "";
+}
+
+function setApplyProgress(step: number, stage: string, detail: string): void {
+  applyFeedbackState = "running";
+  const button = byId<HTMLButtonElement>("applyButton");
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  button.classList.remove("is-complete", "is-failed");
+  setApplyButtonDisplay(`${step}/5 · ${stage}`, detail, `${stage}: ${detail}`);
+  setStatus(stage, detail, "ينفّذ");
+}
+
 function updateApplyButton(): void {
   const { approvedCount: count, selectableCount } = getReviewSelectionCounts(reviewItems);
   const selectAllButton = byId<HTMLButtonElement>("selectAll");
@@ -183,8 +209,36 @@ function updateApplyButton(): void {
   selectNoneButton.disabled = count === 0;
   selectNoneButton.textContent = count ? `إلغاء التحديد (${count})` : "إلغاء التحديد";
   const button = byId<HTMLButtonElement>("applyButton");
+
+  if (applyFeedbackState === "running") {
+    button.disabled = true;
+    return;
+  }
+  if (applyFeedbackState === "completed") {
+    button.disabled = count === 0;
+    button.removeAttribute("aria-busy");
+    button.classList.add("is-complete");
+    button.classList.remove("is-failed");
+    setApplyButtonDisplay("✓ اكتمل الاعتماد", applyFeedbackSummary, applyFeedbackSummary);
+    return;
+  }
+  if (applyFeedbackState === "failed") {
+    button.disabled = count === 0;
+    button.removeAttribute("aria-busy");
+    button.classList.add("is-failed");
+    button.classList.remove("is-complete");
+    setApplyButtonDisplay("تعذر إكمال الاعتماد", "راجع رسالة الحالة ثم أعد المحاولة", applyFeedbackError);
+    return;
+  }
+
   button.disabled = count === 0;
-  button.textContent = count ? `اعتماد ${count} وحدة للمراجعة النهائية ←` : "اعتماد المحدد ←";
+  button.removeAttribute("aria-busy");
+  button.classList.remove("is-complete", "is-failed");
+  setApplyButtonDisplay(
+    count ? `اعتماد ${count} وحدة` : "اعتماد المحدد",
+    count ? "سيُعاد التحقق قبل تعديل المستند" : "اختر النتائج التي تريد اعتمادها",
+    count ? `اعتماد ${count} وحدة بعد التحقق من مواضعها` : "لا توجد وحدات معتمدة"
+  );
 }
 function renderResults(): void {
   const root = byId<HTMLElement>("results");
@@ -234,6 +288,7 @@ function renderResults(): void {
     // the replacement range. Range validation remains mandatory at apply time.
     checkbox.disabled = item.status === "ambiguous" || !item.replacementText || item.decision === "applied";
     checkbox.addEventListener("change", () => {
+      resetApplyFeedback();
       reviewItems = setReviewDecision(reviewItems, [item.id], checkbox.checked ? "approved" : "rejected");
       updateApplyButton();
     });
@@ -436,6 +491,7 @@ async function applyLegacyBracketNormalization(): Promise<void> {
 }
 
 async function inspectDocument(): Promise<void> {
+  resetApplyFeedback();
   const scanStartedAt = performance.now();
   const metrics: ScanDiagnostics = {
     totalMs: 0, datasetMs: 0, wordReadMs: 0, detectionMs: 0,
@@ -594,6 +650,7 @@ async function inspectDocument(): Promise<void> {
 
 
 async function inspectSelectedText(): Promise<void> {
+  resetApplyFeedback();
   const scanStartedAt = performance.now();
   const metrics: ScanDiagnostics = {
     totalMs: 0, datasetMs: 0, wordReadMs: 0, detectionMs: 0,
@@ -1040,29 +1097,32 @@ async function applyApprovedReplacements(): Promise<void> {
   const approved = reviewItems.filter(item => item.decision === "approved");
   if (!approved.length) return;
 
+  const button = byId<HTMLButtonElement>("applyButton");
   const addCitations = byId<HTMLInputElement>("addCitations").checked;
   const correctCitations = byId<HTMLInputElement>("correctCitations").checked;
-  const quranIndex = addCitations || correctCitations
-    ? await (datasetPromise ??= loadDataset()).then(loaded => loaded.index)
-    : undefined;
-
-  const entries = approved.map(item => {
-    const stored = itemRanges.get(item.id);
-    if (!stored) throw new Error("بيانات موضع الآية غير موجودة؛ أعد فحص النص.");
-    return { item, ...stored };
-  });
-  type ApplyEntry = typeof entries[number];
+  const citationOptionsEnabled = addCitations || correctCitations;
+  type ApplyEntry = {
+    item: ReviewItem;
+    range?: WordRange;
+    scope?: "selection";
+    scopeSnapshot?: string;
+    scopeRange?: WordRange;
+    paragraphIndex: number;
+    start: number;
+    end: number;
+    expectedText: string;
+  };
   type ResolvedApplyEntry = ApplyEntry & { range: WordRange; paragraphText: string };
 
-  const button = byId<HTMLButtonElement>("applyButton");
   button.disabled = true;
-  setStatus("جارٍ إعادة تحديد المواضع", "التحقق من النص قبل أي تعديل", "يتحقق");
+  applyFeedbackState = "running";
 
   const applyResolvedEntries = async (
     context: WordContext,
-    resolvedEntries: ResolvedApplyEntry[]
+    entries: ResolvedApplyEntry[],
+    citationByItem: Map<string, string | undefined>
   ): Promise<void> => {
-    const ordered = [...resolvedEntries].sort((a, b) =>
+    const ordered = [...entries].sort((a, b) =>
       a.paragraphIndex - b.paragraphIndex || b.start - a.start
     );
     for (let i = 1; i < ordered.length; i += 1) {
@@ -1074,29 +1134,92 @@ async function applyApprovedReplacements(): Promise<void> {
       }
     }
 
-    for (const entry of ordered) {
+    setApplyProgress(
+      3,
+      "تجهيز التحويل والتخريجات",
+      `إعداد النص البديل لـ ${ordered.length.toLocaleString("ar")} موضعًا وفق الخيارات المحددة`
+    );
+    await yieldToUi();
+
+    const replacements = ordered.map(entry => {
       const finalVerseText = ensureOrnamentalVerseBrackets(entry.item.replacementText);
-      const citation = quranIndex
-        ? formatQuranCitation(entry.item.references, quranIndex)
-        : undefined;
-      const replacement = composeQuranCitationReplacement(
-        finalVerseText,
-        entry.item.citationReview,
-        citation,
-        {
-          addMissing: addCitations,
-          correctExisting: correctCitations
-        }
-      );
+      return {
+        entry,
+        replacement: composeQuranCitationReplacement(
+          finalVerseText,
+          entry.item.citationReview,
+          citationByItem.get(entry.item.id),
+          {
+            addMissing: addCitations,
+            correctExisting: correctCitations
+          }
+        )
+      };
+    });
+
+    setApplyProgress(
+      4,
+      "تطبيق الآيات وضبط الخط",
+      `استبدال ${replacements.length.toLocaleString("ar")} موضعًا وضبط خط المصحف العثماني في Word`
+    );
+    await yieldToUi();
+
+    for (const { entry, replacement } of replacements) {
       const inserted = entry.range.insertText(replacement, "Replace");
       inserted.font.name = "KFGQPC HAFS Uthmanic Script";
     }
     await context.sync();
-    for (const entry of resolvedEntries) context.trackedObjects.remove(entry.range);
+    for (const entry of entries) context.trackedObjects.remove(entry.range);
     await context.sync();
   };
 
   try {
+    setApplyProgress(
+      1,
+      "تهيئة الاعتماد",
+      `التحقق من ${approved.length.toLocaleString("ar")} وحدة معتمدة وتجهيز خيارات التنفيذ`
+    );
+    await yieldToUi();
+
+    let quranIndex: ReturnType<typeof loadQuranDatasetJson>["index"] | undefined;
+    if (citationOptionsEnabled) {
+      setApplyProgress(1, "تحميل بيانات التخريج", "التحقق من قاعدة حفص المعتمدة قبل تعديل أي تخريج");
+      await yieldToUi();
+      quranIndex = (await (datasetPromise ??= loadDataset())).index;
+    }
+
+    const entries: ApplyEntry[] = approved.map(item => {
+      const stored = itemRanges.get(item.id);
+      if (!stored) throw new Error("بيانات موضع الآية غير موجودة؛ أعد فحص النص.");
+      return { item, ...stored };
+    });
+    const citationByItem = new Map<string, string | undefined>(
+      entries.map(entry => [
+        entry.item.id,
+        quranIndex ? formatQuranCitation(entry.item.references, quranIndex) : undefined
+      ])
+    );
+    const citationCanBeApplied = (entry: ApplyEntry): boolean =>
+      Boolean(citationByItem.get(entry.item.id));
+    const citationsAdded = addCitations
+      ? entries.filter(entry => entry.item.citationReview?.status === "missing" && citationCanBeApplied(entry)).length
+      : 0;
+    const citationsCorrected = correctCitations
+      ? entries.filter(entry => entry.item.citationReview?.status === "incorrect" && citationCanBeApplied(entry)).length
+      : 0;
+    const citationsAlreadyCorrect = citationOptionsEnabled
+      ? entries.filter(entry => entry.item.citationReview?.status === "correct").length
+      : 0;
+    const citationsAmbiguous = citationOptionsEnabled
+      ? entries.filter(entry => ["ambiguous", "outside-scope", "unavailable"].includes(entry.item.citationReview?.status ?? "")).length
+      : 0;
+    const incorrectLeftUnchanged = addCitations && !correctCitations
+      ? entries.filter(entry => entry.item.citationReview?.status === "incorrect" && citationCanBeApplied(entry)).length
+      : 0;
+    const missingLeftUnchanged = correctCitations && !addCitations
+      ? entries.filter(entry => entry.item.citationReview?.status === "missing" && citationCanBeApplied(entry)).length
+      : 0;
+
     const selectedScope = entries.some(entry => entry.scope === "selection");
     if (selectedScope) {
       if (entries.some(entry =>
@@ -1105,9 +1228,9 @@ async function applyApprovedReplacements(): Promise<void> {
         throw new Error("تعذر تثبيت نطاق إحدى فقرات النص المحدد. أعد فحص النص قبل الاستبدال.");
       }
 
-      // Resolve again at apply time inside the precise paragraph intersections
-      // captured during scanning. This follows the same guarded strategy as
-      // the whole-document apply path and avoids relying on stale hit objects.
+      setApplyProgress(2, "التحقق من النص المحدد", "التأكد من أن النص المحدد لم يتغير منذ الفحص");
+      await yieldToUi();
+
       const selectedScopes = [...new Set(entries.map(entry => entry.scopeRange!))];
       await Word.run(selectedScopes, async context => {
         for (const scope of selectedScopes) scope.load("text");
@@ -1129,8 +1252,15 @@ async function applyApprovedReplacements(): Promise<void> {
         let replacementsApplied = false;
         try {
           const applyBatchSize = 60;
+          const totalBatches = Math.ceil(requests.length / applyBatchSize);
           for (let offset = 0; offset < requests.length; offset += applyBatchSize) {
             const batch = requests.slice(offset, offset + applyBatchSize);
+            setApplyProgress(
+              2,
+              "تثبيت مواضع الآيات",
+              `الدفعة ${Math.floor(offset / applyBatchSize + 1).toLocaleString("ar")} من ${totalBatches.toLocaleString("ar")} · تم التحقق من ${offset.toLocaleString("ar")} من ${requests.length.toLocaleString("ar")}`
+            );
+            await yieldToUi();
             const results = await resolveReviewedRangesBatch(context, batch);
             const failedIndex = results.findIndex(result => !result.range);
             resolvedRanges.push(...results.flatMap(result => result.range ? [result.range] : []));
@@ -1147,11 +1277,9 @@ async function applyApprovedReplacements(): Promise<void> {
             range: resolvedRanges[index]!,
             paragraphText: entry.scopeSnapshot!
           }));
-          await applyResolvedEntries(context, resolvedEntries);
+          await applyResolvedEntries(context, resolvedEntries, citationByItem);
           replacementsApplied = true;
 
-          // Release scan-time hit objects and the paragraph-intersection
-          // anchors after the newly resolved ranges have been applied.
           for (const entry of entries) {
             if (entry.range) context.trackedObjects.remove(entry.range);
           }
@@ -1168,6 +1296,9 @@ async function applyApprovedReplacements(): Promise<void> {
         }
       });
     } else {
+      setApplyProgress(2, "التحقق من المستند", "مقارنة النص الحالي بالنص الذي فُحص وتثبيت مواضع الاستبدال");
+      await yieldToUi();
+
       await Word.run(async context => {
         const paragraphs = context.document.body.paragraphs.load("items");
         await context.sync();
@@ -1195,9 +1326,16 @@ async function applyApprovedReplacements(): Promise<void> {
 
         const resolvedRanges: WordRange[] = [];
         const applyBatchSize = 60;
+        const totalBatches = Math.ceil(rangeRequests.length / applyBatchSize);
         try {
           for (let offset = 0; offset < rangeRequests.length; offset += applyBatchSize) {
             const batch = rangeRequests.slice(offset, offset + applyBatchSize);
+            setApplyProgress(
+              2,
+              "تثبيت مواضع الآيات",
+              `الدفعة ${Math.floor(offset / applyBatchSize + 1).toLocaleString("ar")} من ${totalBatches.toLocaleString("ar")} · تم التحقق من ${offset.toLocaleString("ar")} من ${rangeRequests.length.toLocaleString("ar")}`
+            );
+            await yieldToUi();
             const results = await resolveReviewedRangesBatch(context, batch);
             const failed = results.find(result => !result.range);
             if (failed) {
@@ -1216,26 +1354,49 @@ async function applyApprovedReplacements(): Promise<void> {
           range: resolvedRanges[index]!,
           paragraphText: currentRanges[index]!.text
         }));
-        await applyResolvedEntries(context, resolvedEntries);
+        await applyResolvedEntries(context, resolvedEntries, citationByItem);
       });
     }
 
+    setApplyProgress(5, "تحديث نتائج المراجعة", "تسجيل المواضع المنجزة وإبقاء بقية النتائج كما هي");
+    await yieldToUi();
     for (const item of approved) itemRanges.delete(item.id);
     reviewItems = reviewItems.map(item =>
       item.decision === "approved" ? { ...item, decision: "applied" } : item
     );
+
+    const summaryParts = [
+      `تحويل ${approved.length.toLocaleString("ar")} موضعًا وضبط خط المصحف`
+    ];
+    if (!citationOptionsEnabled) {
+      summaryParts.push("لم تُغيّر التخريجات");
+    } else {
+      summaryParts.push(addCitations
+        ? `إضافة ${citationsAdded.toLocaleString("ar")}`
+        : "إضافة التخريجات غير مفعّلة");
+      summaryParts.push(correctCitations
+        ? `تصحيح ${citationsCorrected.toLocaleString("ar")}`
+        : "تصحيح التخريجات غير مفعّل");
+      if (citationsAlreadyCorrect) summaryParts.push(`إبقاء ${citationsAlreadyCorrect.toLocaleString("ar")} تخريج صحيح كما هو`);
+      if (incorrectLeftUnchanged) summaryParts.push(`إبقاء ${incorrectLeftUnchanged.toLocaleString("ar")} تخريج خاطئ دون تصحيح لأن خياره غير مفعّل`);
+      if (missingLeftUnchanged) summaryParts.push(`عدم إضافة ${missingLeftUnchanged.toLocaleString("ar")} تخريج لأن خيار الإضافة غير مفعّل`);
+      if (citationsAmbiguous) summaryParts.push(`ترك ${citationsAmbiguous.toLocaleString("ar")} إحالة ملتبسة أو خارج النطاق دون تغيير`);
+    }
+    applyFeedbackSummary = summaryParts.join(" · ");
+    applyFeedbackState = "completed";
     renderResults();
-    setStatus("اكتمل الاستبدال", `تم تحويل ${approved.length} وحدة معتمدة بعد إعادة التحقق منها.`, "اكتمل");
-    toast(`اكتمل تحويل ${approved.length} وحدة معتمدة.`);
+    setStatus("اكتمل الاعتماد", applyFeedbackSummary, "اكتمل");
+    toast(applyFeedbackSummary);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    setStatus("أُلغي الاستبدال", message, "توقف");
+    applyFeedbackError = message;
+    applyFeedbackState = "failed";
+    setStatus("تعذر إكمال الاعتماد", message, "توقف");
     toast(message);
   } finally {
-    button.disabled = reviewItems.every(item => item.decision !== "approved");
+    updateApplyButton();
   }
 }
-
 Office.onReady(() => {
   byId<HTMLButtonElement>("validateCitationsButton").addEventListener("click", () => void inspectQuranCitations());
   byId<HTMLButtonElement>("scanButton").addEventListener("click", () => void inspectDocument());
@@ -1247,11 +1408,13 @@ Office.onReady(() => {
     const selectableIds = reviewItems
       .filter(item => item.decision !== "applied" && item.status !== "ambiguous" && Boolean(item.replacementText.trim()))
       .map(item => item.id);
+    resetApplyFeedback();
     reviewItems = setReviewDecision(reviewItems, selectableIds, "approved");
     renderResults();
     toast(`تم تحديد ${selectableIds.length} نتيجة قابلة للاعتماد. لم يُعدّل المستند.`);
   });
   byId<HTMLButtonElement>("selectNone").addEventListener("click", () => {
+    resetApplyFeedback();
     reviewItems = reviewItems.map(item => item.decision === "applied" ? item : ({ ...item, decision: "pending" }));
     renderResults();
     toast("أُلغي تحديد جميع النتائج.");
