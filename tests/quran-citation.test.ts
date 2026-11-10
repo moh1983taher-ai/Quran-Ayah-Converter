@@ -3,7 +3,8 @@ import {
   composeQuranCitationReplacement,
   formatQuranCitation,
   hasMatchingQuranCitation,
-  inspectAdjacentQuranCitation
+  inspectAdjacentQuranCitation,
+  verifyAndComposeQuranCitationReplacement
 } from "../src/word/quran-citation.js";
 import type { AyahReference, QuranAyahRecord, QuranIndex } from "../src/core/types.js";
 
@@ -203,6 +204,52 @@ describe("independent Quran citation operations", () => {
       expect(composeQuranCitationReplacement(verse, review, expected, options(true, true)))
         .toBe(verse);
     }
+  });
+
+  it("revalidates the current adjacent citation before correcting it", () => {
+    const source = `${verse}، [يوسف: 3]`;
+    const wrongIndex = indexFor([...refs, { surah: 12, ayah: 3 }]);
+    const result = verifyAndComposeQuranCitationReplacement(
+      verse,
+      source,
+      verse.length,
+      expected,
+      refs,
+      wrongIndex,
+      options(false, true)
+    );
+    expect(result.review.status).toBe("incorrect");
+    expect(result.review.existingCitation).toBe("[يوسف: 3]");
+    expect(result.replacementText).toBe(`${verse}، ${expected}`);
+  });
+
+  it("verifies a missing citation but does not add it when correction alone is enabled", () => {
+    const result = verifyAndComposeQuranCitationReplacement(
+      verse,
+      verse + " ثم",
+      verse.length,
+      expected,
+      refs,
+      index,
+      options(false, true)
+    );
+    expect(result.review.status).toBe("missing");
+    expect(result.replacementText).toBe(verse);
+  });
+
+  it("preserves ambiguous references during the combined verification and correction flow", () => {
+    const source = `${verse} [سورة مجهولة: 3]`;
+    const result = verifyAndComposeQuranCitationReplacement(
+      verse,
+      source,
+      verse.length,
+      expected,
+      refs,
+      index,
+      options(true, true)
+    );
+    expect(result.review.status).toBe("ambiguous");
+    expect(result.replacementText).toBe(verse);
   });
 
   it("does not invent a citation when the canonical citation is unavailable", () => {
