@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { tokenizeArabic } from "../src/core/alignment.js";
+import { tokenizeArabic, tokenForms } from "../src/core/alignment.js";
 import {
   mapNormalizedRange,
   normalizeArabic,
@@ -17,6 +17,27 @@ describe("Arabic normalization", () => {
 
   it("normalizes Arabic presentation ligatures and removes invisible format controls", () => {
     expect(normalizeArabic("ﷲ لَا\u200Dه")).toBe("الله لاه");
+  });
+
+  it("keeps dagger alif as a contextual exact alternative rather than rewriting every word", () => {
+    const halal = tokenizeArabic("حَلَٰلٗا")[0]!;
+    expect(halal.value).toBe("حللا");
+    expect(tokenForms(halal)).toContain("حلالا");
+
+    const rahman = tokenizeArabic("الرَّحْمَٰنُ")[0]!;
+    expect(rahman.value).toBe("الرحمن");
+    expect(tokenForms(rahman)).toContain("الرحمان");
+
+    const ila = tokenizeArabic("إِلَىٰ")[0]!;
+    expect(ila.value).toBe("الي");
+    expect(tokenForms(ila)).not.toContain("اليا");
+  });
+
+  it("normalizes joined and separated vocative forms to the same token stream", () => {
+    expect(tokenizeArabic("يَٰٓـَٔادَمُ").map(token => token.value))
+      .toEqual(tokenizeArabic("يا آدم").map(token => token.value));
+    expect(tokenizeArabic("يَٰٓأَيُّهَا").map(token => token.value))
+      .toEqual(tokenizeArabic("يا أيها").map(token => token.value));
   });
 
   it("normalizes hamza-seat variants without removing the hamza", () => {
