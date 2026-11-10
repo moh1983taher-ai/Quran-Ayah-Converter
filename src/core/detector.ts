@@ -1091,7 +1091,7 @@ function isInsideBracketedQuotation(text: string, start: number, end: number): b
     while (cursor < text.length) {
       const opening = text.indexOf(open, cursor);
       if (opening < 0) break;
-      const closing = text.indexOf(close, opening + open.length);
+      const closing = findMatchingBracketEnd(text, open, close, opening);
       if (closing < 0) break;
       const contentStart = opening + open.length;
       if (start >= contentStart && end <= closing) return true;
