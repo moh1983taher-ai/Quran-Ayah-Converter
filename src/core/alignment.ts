@@ -137,7 +137,7 @@ function differsByOneInsertedCharacter(left: string, right: string): boolean {
 
 /** Levenshtein alignment over word tokens. */
 export function alignTokenSequence(
-  canonicalTokens: readonly string[],
+  canonicalTokens: readonly (string | AlignmentToken)[],
   sourceTokens: readonly AlignmentToken[]
 ): Omit<TokenAlignment, "sourceStart" | "sourceEnd" | "sourceTokenCount"> {
   const rows = canonicalTokens.length + 1;
@@ -152,9 +152,11 @@ export function alignTokenSequence(
   let matchedTokens = 0;
   for (let i = 1; i < rows; i += 1) {
     for (let j = 1; j < columns; j += 1) {
-      const equal = alignmentTokensMatch(canonicalTokens[i - 1]!, sourceTokens[j - 1]!);
+      const canonical = canonicalTokens[i - 1]!;
+      const canonicalValue = typeof canonical === "string" ? canonical : canonical.value;
+      const equal = alignmentTokensMatch(canonical, sourceTokens[j - 1]!);
       const tokenInsertionDeletion = !equal &&
-        differsByOneInsertedCharacter(canonicalTokens[i - 1]!, sourceTokens[j - 1]!.value);
+        differsByOneInsertedCharacter(canonicalValue, sourceTokens[j - 1]!.value);
       matrix[i]![j] = Math.min(
         matrix[i - 1]![j]! + 1,
         matrix[i]![j - 1]! + 1,
@@ -207,10 +209,10 @@ export function findFuzzyTokenAlignments(
   canonicalTokens.forEach((token, canonicalIndex) => {
     for (const value of tokenForms(token)) {
       for (const sourceIndex of prepared.positions.get(value) ?? []) {
-      for (let shift = -1; shift <= 1; shift += 1) {
-        const start = sourceIndex - canonicalIndex + shift;
-        if (start >= 0 && start < sourceTokens.length) candidateStarts.add(start);
-      }
+        for (let shift = -1; shift <= 1; shift += 1) {
+          const start = sourceIndex - canonicalIndex + shift;
+          if (start >= 0 && start < sourceTokens.length) candidateStarts.add(start);
+        }
       }
     }
   });
