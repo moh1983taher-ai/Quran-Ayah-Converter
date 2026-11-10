@@ -22,7 +22,7 @@ describe("Arabic normalization", () => {
   it("normalizes hamza-seat variants without removing the hamza", () => {
     expect(normalizeArabic("فَبَاؤُواْ")).toBe(normalizeArabic("فَبَاءُواْ"));
     expect(normalizeArabic("سُئِلَ")).toBe(normalizeArabic("سُءِلَ"));
-    expect(normalizeArabic("سأل")).not.toBe(normalizeArabic("سال"));
+    expect(normalizeArabic("سؤال")).not.toBe(normalizeArabic("سوال"));
   });
   it("does not merge taa marbuta and haa", () => {
     expect(normalizeArabic("رحمة")).not.toBe(normalizeArabic("رحمه"));
