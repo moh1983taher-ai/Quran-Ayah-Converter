@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildApprovedReplacements,
   createReviewItems,
+  createScopedReviewItems,
   getReviewSelectionCounts,
   groupBracketedAyahMatches,
   setReviewDecision
@@ -21,6 +22,34 @@ const match = (overrides: Partial<AyahMatch> = {}): AyahMatch => ({
 });
 
 describe("Word review workflow", () => {
+  it("keeps selected-paragraph matches scoped, with paragraph-local offsets and unique identities", () => {
+    const firstText = "قبل آية أولى بعد";
+    const secondText = "قبل آية ثانية بعد";
+    const firstStart = firstText.indexOf("آية أولى");
+    const secondStart = secondText.indexOf("آية ثانية");
+    const first = createScopedReviewItems(
+      firstText,
+      [match({ sourceStart: firstStart, sourceEnd: firstStart + "آية أولى".length })],
+      "selection:p0",
+      "ضمن التحديد · الفقرة 1"
+    );
+    const second = createScopedReviewItems(
+      secondText,
+      [match({ sourceStart: secondStart, sourceEnd: secondStart + "آية ثانية".length, references: [{ surah: 1, ayah: 2 }] })],
+      "selection:p1",
+      "ضمن التحديد · الفقرة 2"
+    );
+
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+    expect(first[0]?.id).toMatch(/^selection:p0:/u);
+    expect(second[0]?.id).toMatch(/^selection:p1:/u);
+    expect(first[0]?.sourceStart).toBe(firstStart);
+    expect(second[0]?.sourceStart).toBe(secondStart);
+    expect(first[0]?.originalText).toBe("آية أولى");
+    expect(second[0]?.originalText).toBe("آية ثانية");
+  });
+
   it("enables the clear-selection action only while at least one result is approved", () => {
     const source = "قبل آية نص بعد";
     const start = source.indexOf("آية نص");
