@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { formatQuranCitation, hasMatchingQuranCitation } from "../src/word/quran-citation.js";
+import {
+  formatQuranCitation,
+  hasMatchingQuranCitation,
+  inspectAdjacentQuranCitation
+} from "../src/word/quran-citation.js";
 import type { AyahReference, QuranAyahRecord, QuranIndex } from "../src/core/types.js";
 
 function indexFor(references: AyahReference[]): QuranIndex {
@@ -49,5 +53,73 @@ describe("Quran citation formatting", () => {
   });
   it("recognizes an existing citation after punctuation", () => {
     expect(hasMatchingQuranCitation("، [يوسف: 23-25] ثم", "[يوسف: 23–25]")).toBe(true);
+  });
+});
+
+describe("adjacent Quran citation review", () => {
+  const refs = [{ surah: 4, ayah: 30 }];
+  const index = indexFor(refs);
+  const expected = "[النساء: 30]";
+  const verse = "﴿نص الآية﴾";
+
+  it("classifies a missing citation as addable", () => {
+    const result = inspectAdjacentQuranCitation(verse + " ثم", verse.length, expected, refs, index);
+    expect(result.status).toBe("missing");
+    expect(result.editable).toBe(true);
+  });
+
+  it("recognizes correct citations with Arabic digits", () => {
+    const result = inspectAdjacentQuranCitation(verse + "  [النساء: ٣٠]", verse.length, expected, refs, index);
+    expect(result.status).toBe("correct");
+    expect(result.existingCitation).toBe("[النساء: ٣٠]");
+    expect(result.separator).toBe("  ");
+  });
+
+  it("classifies a known wrong citation and captures its exact range", () => {
+    const text = verse + "، [يوسف: 3]";
+    const wrongIndex = indexFor([...refs, { surah: 12, ayah: 3 }]);
+    const result = inspectAdjacentQuranCitation(text, verse.length, expected, refs, wrongIndex);
+    expect(result.status).toBe("incorrect");
+    expect(result.editable).toBe(true);
+    expect(text.slice(result.start, result.end)).toBe("[يوسف: 3]");
+    expect(result.separator).toBe("، ");
+  });
+
+  it("leaves unknown surah citations ambiguous", () => {
+    const result = inspectAdjacentQuranCitation(verse + " [سورة مجهولة: 3]", verse.length, expected, refs, index);
+    expect(result.status).toBe("ambiguous");
+    expect(result.editable).toBe(false);
+  });
+
+  it("does not treat a plain footnote number as a citation", () => {
+    const result = inspectAdjacentQuranCitation(verse + " [12]", verse.length, expected, refs, index);
+    expect(result.status).toBe("missing");
+  });
+
+  it("leaves bibliographic references untouched", () => {
+    const result = inspectAdjacentQuranCitation(verse + " [Smith 2020]", verse.length, expected, refs, index);
+    expect(result.status).toBe("ambiguous");
+    expect(result.editable).toBe(false);
+  });
+
+  it("does not insert when the selection ends at the verse boundary", () => {
+    const result = inspectAdjacentQuranCitation(verse, verse.length, expected, refs, index, { start: 0, end: verse.length });
+    expect(result.status).toBe("outside-scope");
+    expect(result.editable).toBe(false);
+  });
+
+  it("does not replace a citation that extends beyond the selection", () => {
+    const text = verse + " [النساء: 30]";
+    const result = inspectAdjacentQuranCitation(text, verse.length, expected, refs, index, { start: 0, end: verse.length + 5 });
+    expect(result.status).toBe("outside-scope");
+    expect(result.editable).toBe(false);
+  });
+
+  it("recognizes consecutive passage ranges as one citation", () => {
+    const passageRefs = [23, 24, 25].map(ayah => ({ surah: 12, ayah }));
+    const passageIndex = indexFor(passageRefs);
+    const passageCitation = "[يوسف: 23–25]";
+    const result = inspectAdjacentQuranCitation(verse + " " + passageCitation, verse.length, passageCitation, passageRefs, passageIndex);
+    expect(result.status).toBe("correct");
   });
 });

@@ -1,6 +1,31 @@
 import type { AyahReference, QuranIndex, QuranAyahRecord } from "../core/types.js";
 import { normalizeArabic } from "../core/normalizer.js";
 
+export type QuranCitationReviewStatus =
+  | "missing"
+  | "correct"
+  | "incorrect"
+  | "ambiguous"
+  | "outside-scope"
+  | "unavailable";
+
+export interface QuranCitationReview {
+  status: QuranCitationReviewStatus;
+  expectedCitation: string;
+  existingCitation?: string;
+  separator?: string;
+  /** UTF-16 offsets of the adjacent bracketed citation in the inspected text. */
+  start?: number;
+  end?: number;
+  editable: boolean;
+  detail: string;
+}
+
+export interface CitationReviewScope {
+  start: number;
+  end: number;
+}
+
 /** Build source-backed citations from verified dataset identities only. */
 export function formatQuranCitation(references: readonly AyahReference[], index: QuranIndex): string | undefined {
   if (!references.length) return undefined;
@@ -27,6 +52,16 @@ export function formatQuranCitation(references: readonly AyahReference[], index:
   return `[${citations.join("؛ ")}]`;
 }
 
+const DIGITS = "٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹";
+function asciiDigits(value: string): string {
+  return value.replace(/[٠-٩۰-۹]/gu, digit => String(DIGITS.indexOf(digit) % 10));
+}
+function normalizeCitation(value: string): string {
+  return normalizeArabic(asciiDigits(value))
+    .replace(/[\sـ]/gu, "")
+    .replace(/[–—−]/gu, "-");
+}
+
 /** Recognize the same citation immediately following the verse, without duplicating it. */
 export function hasMatchingQuranCitation(trailingText: string, expectedCitation: string): boolean {
   const match = trailingText.match(/^\s*[،؛,.;:!?؟]*\s*\[([^\]\r\n]{1,180})\]/u);
@@ -34,8 +69,215 @@ export function hasMatchingQuranCitation(trailingText: string, expectedCitation:
   return normalizeCitation(match[1]!) === normalizeCitation(expectedCitation.slice(1, -1));
 }
 
-function normalizeCitation(value: string): string {
-  const digits = "٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹";
-  const westernDigits = value.replace(/[٠-٩۰-۹]/gu, digit => String(digits.indexOf(digit) % 10));
-  return normalizeArabic(westernDigits).replace(/[\sـ]/gu, "").replace(/[–—−]/gu, "-");
+const surahNameIndexes = new WeakMap<QuranIndex, Map<string, number>>();
+function getSurahNameIndex(index: QuranIndex): Map<string, number> {
+  const cached = surahNameIndexes.get(index);
+  if (cached) return cached;
+  const names = new Map<string, number>();
+  for (const record of index.all()) {
+    const key = normalizeCitation(record.surahNameArabic);
+    const existing = names.get(key);
+    if (existing !== undefined && existing !== record.surah) {
+      names.delete(key);
+      continue;
+    }
+    names.set(key, record.surah);
+  }
+  surahNameIndexes.set(index, names);
+  return names;
+}
+
+function resolveSurahNumber(name: string, index: QuranIndex): number | undefined {
+  const cleaned = name.trim().replace(/^سورة\s*/u, "");
+  return getSurahNameIndex(index).get(normalizeCitation(cleaned));
+}
+
+type ParsedCitation =
+  | { status: "valid"; references: AyahReference[] }
+  | { status: "invalid" }
+  | { status: "ambiguous" };
+
+/**
+ * Parse the compact citation syntax emitted by formatQuranCitation, including
+ * several surahs and non-consecutive ayahs. Unknown labels stay ambiguous.
+ */
+function parseCitationContent(value: string, index: QuranIndex): ParsedCitation {
+  const sections = value.split(/[؛;]/u).map(part => part.trim()).filter(Boolean);
+  if (!sections.length) return { status: "ambiguous" };
+  const references: AyahReference[] = [];
+  let currentSurah: number | undefined;
+
+  for (const section of sections) {
+    const separator = section.search(/[:：،]/u);
+    let ayahSpec = section;
+    if (separator >= 0) {
+      const surahName = section.slice(0, separator).trim();
+      currentSurah = resolveSurahNumber(surahName, index);
+      if (!currentSurah) return { status: "ambiguous" };
+      ayahSpec = section.slice(separator + 1).trim();
+    }
+    if (!currentSurah) return { status: "ambiguous" };
+
+    const tokens = ayahSpec
+      .replace(/^الآيات?\s*/u, "")
+      .split(/[،,]/u)
+      .map(token => token.trim())
+      .filter(Boolean);
+    if (!tokens.length) return { status: "ambiguous" };
+
+    for (const token of tokens) {
+      const match = token.match(/^(\d{1,3}|[٠-٩۰-۹]{1,3})(?:\s*[-–—]\s*(\d{1,3}|[٠-٩۰-۹]{1,3}))?$/u);
+      if (!match) return { status: "ambiguous" };
+      const first = Number(asciiDigits(match[1]!));
+      const last = Number(asciiDigits(match[2] ?? match[1]!));
+      if (!Number.isInteger(first) || !Number.isInteger(last) ||
+          first < 1 || last < first || last - first > 286) {
+        return { status: "invalid" };
+      }
+      for (let ayah = first; ayah <= last; ayah += 1) {
+        if (!index.get({ surah: currentSurah, ayah })) return { status: "invalid" };
+        references.push({ surah: currentSurah, ayah });
+      }
+    }
+  }
+
+  const unique = references.filter((reference, position) =>
+    references.findIndex(candidate =>
+      candidate.surah === reference.surah && candidate.ayah === reference.ayah
+    ) === position
+  );
+  return unique.length ? { status: "valid", references: unique } : { status: "ambiguous" };
+}
+
+function sameReferences(
+  actual: readonly AyahReference[],
+  expected: readonly AyahReference[]
+): boolean {
+  const actualKeys = new Set(actual.map(reference => `${reference.surah}:${reference.ayah}`));
+  const expectedKeys = new Set(expected.map(reference => `${reference.surah}:${reference.ayah}`));
+  return actualKeys.size === expectedKeys.size &&
+    [...expectedKeys].every(key => actualKeys.has(key));
+}
+
+/**
+ * Inspects only a bracketed reference immediately after a detected quotation.
+ * A known but incorrect Qur'anic citation can be corrected; unknown or
+ * bibliographic-looking references are deliberately left untouched.
+ */
+export function inspectAdjacentQuranCitation(
+  text: string,
+  verseEnd: number,
+  expectedCitation: string | undefined,
+  expectedReferences: readonly AyahReference[],
+  index: QuranIndex,
+  scope?: CitationReviewScope
+): QuranCitationReview {
+  if (!expectedCitation || !expectedReferences.length) {
+    return {
+      status: "unavailable",
+      expectedCitation: expectedCitation ?? "",
+      editable: false,
+      detail: "تعذر توليد تخريج موثوق من مراجع الآية."
+    };
+  }
+
+  const trailing = text.slice(verseEnd);
+  const match = trailing.match(/^([\s،؛,.;:!?؟]*)(\[[^\]\r\n]{1,180}\])/u);
+  if (!match) {
+    if (scope && verseEnd >= scope.end) {
+      return {
+        status: "outside-scope",
+        expectedCitation,
+        editable: false,
+        detail: "انتهى النص المحدد عند نهاية الآية؛ لم يُفحص ما بعدها خارج التحديد، لذلك لن يُضاف تخريج قد يكون موجودًا خارجه."
+      };
+    }
+    return {
+      status: "missing",
+      expectedCitation,
+      editable: true,
+      detail: "لا يوجد تخريج قرآني ملاصق لهذا الاقتباس."
+    };
+  }
+
+  const start = verseEnd + match[1]!.length;
+  const end = start + match[2]!.length;
+  const existingCitation = match[2]!;
+  const content = existingCitation.slice(1, -1);
+  const citationLike = /[:：،]/u.test(content) ||
+    (/\p{Script=Arabic}/u.test(content) && /[0-9٠-٩۰-۹]/u.test(content));
+
+  // A plain bracketed number is commonly a footnote, not a Quran citation.
+  if (!citationLike) {
+    const plainFootnote = /^\s*\d+\s*$/u.test(asciiDigits(content));
+    if (!plainFootnote && /[\p{L}]/u.test(content)) {
+      return {
+        status: "ambiguous",
+        expectedCitation,
+        existingCitation,
+        separator: match[1]!,
+        start,
+        end,
+        editable: false,
+        detail: "الإحالة الملاصقة ليست بصيغة تخريج قرآني واضحة؛ ستُترك دون تغيير."
+      };
+    }
+    return {
+      status: "missing",
+      expectedCitation,
+      editable: true,
+      detail: "لا يوجد تخريج قرآني ملاصق لهذا الاقتباس؛ لم يُخلط بين رقم الحاشية والتخريج."
+    };
+  }
+
+  if (scope && (start < scope.start || end > scope.end)) {
+    return {
+      status: "outside-scope",
+      expectedCitation,
+      existingCitation,
+      separator: match[1]!.slice(0, match[1]!.length),
+      start,
+      end,
+      editable: false,
+      detail: "يوجد مرجع ملاصق خارج النص المحدد؛ سيُترك دون تعديل حمايةً لنطاق المستخدم."
+    };
+  }
+
+  const parsed = parseCitationContent(content, index);
+  if (parsed.status === "ambiguous") {
+    return {
+      status: "ambiguous",
+      expectedCitation,
+      existingCitation,
+      separator: match[1]!.slice(0, match[1]!.length),
+      start,
+      end,
+      editable: false,
+      detail: "المرجع الملاصق ملتبس أو غير معروف؛ سيُترك دون تغيير."
+    };
+  }
+
+  if (parsed.status === "invalid" || !sameReferences(parsed.references, expectedReferences)) {
+    return {
+      status: "incorrect",
+      expectedCitation,
+      existingCitation,
+      separator: match[1]!,
+      start,
+      end,
+      editable: true,
+      detail: "التخريج الموجود لا يطابق الآيات المكتشفة؛ يمكن استبداله بالتخريج الصحيح."
+    };
+  }
+
+  return {
+    status: "correct",
+    expectedCitation,
+    existingCitation,
+    separator: match[1]!,
+    start,
+    end,
+    editable: true,
+    detail: "التخريج الموجود صحيح ومطابق لمراجع الآيات."
+  };
 }
