@@ -41,7 +41,14 @@ export function tokenizeNormalized(normalized: NormalizedText): AlignmentToken[]
     // (e.g. source "فباؤوا" versus canonical "فباءو"). Treat that
     // final alif as a spelling convention at token level, not as a
     // character-level fuzzy substitution. Source offsets remain untouched.
-    const tokenValue = match[0].replace(/ءوا$/u, "ءو");
+    const sourceToken = normalized.sourceText.slice(mapped.start, mapped.end);
+    // In the Uthmani form حَلَٰلٗا, the dagger alif represents the
+    // ordinary alif in the imlaei spelling حَلَالًا. The general
+    // diacritic stripper removes the mark, so restore this lexeme-level
+    // spelling equivalence only when the source token actually contains it.
+    const tokenValue = sourceToken.includes("ٰ") && match[0] === "حللا"
+      ? "حلالا"
+      : match[0].replace(/ءوا$/u, "ءو");
     const previous = tokens[tokens.length - 1];
     if (
       previous?.value === "يا" &&

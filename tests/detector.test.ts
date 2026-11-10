@@ -35,6 +35,24 @@ const records: QuranAyahRecord[] = [
 describe("QuranAyahDetector", () => {
   const detector = new QuranAyahDetector(new InMemoryQuranIndex(records));
 
+  it("matches Al-Nahl 114 when the Uthmani dagger alif represents an imlaei alif", () => {
+    const ayahRecord: QuranAyahRecord = {
+      id: "16:114",
+      surah: 16,
+      ayah: 114,
+      surahNameArabic: "النحل",
+      imlaei: "فكلوا مما رزقكم الله حلالا طيبا واشكروا نعمة الله ان كنتم اياه تعبدون",
+      uthmani: "فَكُلُواْ مِمَّا رَزَقَكُمُ ٱللَّهُ حَلَٰلٗا طَيِّبٗا وَٱشْكُرُواْ نِعْمَتَ ٱللَّهِ إِن كُنْتُمۡ إِيَّاهُ تَعْبُدُونَ"
+    };
+    const localDetector = new QuranAyahDetector(new InMemoryQuranIndex([ayahRecord]));
+    const source = "﴿فَكُلُوا مِمَّا رَزَقَكُمُ اللَّهُ حَلَالًا طَيِّبًا وَاشْكُرُوا نِعْمَتَ اللَّهِ إِنْ كُنْتُمْ إِيَّاهُ تَعْبُدُونَ ﴾";
+    const matches = localDetector.detect(source);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.references).toEqual([{ surah: 16, ayah: 114 }]);
+    expect(matches[0]?.matchedText).toBe(source);
+    expect(matches[0]?.replacementText).toContain("حَلَٰلٗا");
+  });
+
   it("matches the supplied Al-Baqarah 90 quotation across Uthmani alif-of-waw spelling", () => {
     const ayahRecord: QuranAyahRecord = {
       id: "2:90",
