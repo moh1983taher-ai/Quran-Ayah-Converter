@@ -35,7 +35,7 @@ describe("Word review workflow", () => {
     );
     const second = createScopedReviewItems(
       secondText,
-      [match({ sourceStart: secondStart, sourceEnd: secondStart + "آية ثانية".length, references: [{ surah: 1, ayah: 2 }] })],
+      [match({ sourceStart: secondStart, sourceEnd: secondStart + "آية ثانية".length })],
       "selection:p1",
       "ضمن التحديد · الفقرة 2"
     );
