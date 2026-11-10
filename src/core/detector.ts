@@ -6,7 +6,7 @@ import type {
   QuranIndex
 } from "./types.js";
 import { mapNormalizedRange, normalizeArabicWithMap } from "./normalizer.js";
-import { findFuzzyTokenAlignments, prepareFuzzySource, tokenizeArabic } from "./alignment.js";
+import { alignmentTokensMatch, findFuzzyTokenAlignments, prepareFuzzySource, tokenizeArabic, tokenForms } from "./alignment.js";
 import { resolveAyahIdentity } from "./identity-resolver.js";
 
 export interface DetectorDiagnostics {
@@ -156,7 +156,7 @@ export class QuranAyahDetector {
       this.preparedRecords.set(record, prepared);
       this.recordPositions.set(record, position);
       for (const token of [...prepared.imlaeiTokens, ...prepared.uthmaniTokens]) {
-        this.addTokenPosting(token.value, record);
+        for (const value of tokenForms(token)) this.addTokenPosting(value, record);
       }
     });
   }
@@ -423,7 +423,7 @@ export class QuranAyahDetector {
     const fuzzyStartedAt = performance.now();
     for (const record of candidateRecords) {
       const preparedRecord = this.prepared(record);
-      const canonicalTokens = preparedRecord.imlaeiTokens.map(token => token.value);
+      const canonicalTokens = preparedRecord.imlaeiTokens;
       // Bracketed short fragments are handled by exact contiguous matching above.
       // Fuzzy alignment needs at least four words to avoid generic false positives.
       const minimumTokens = allowShort ? 4 : 5;
@@ -591,6 +591,7 @@ export class QuranAyahDetector {
         record: QuranAyahRecord;
         imlaei: string;
         uthmani: ReturnType<typeof tokenizeArabic>[number];
+        imlaei: ReturnType<typeof tokenizeArabic>[number];
       }> = [];
       const group: QuranAyahRecord[] = [];
 
@@ -620,7 +621,10 @@ export class QuranAyahDetector {
         for (let offset = 0; offset < firstRecordTokenCount; offset += 1) {
           if (offset + sourceValues.length > flattened.length) continue;
           const window = flattened.slice(offset, offset + sourceValues.length);
-          if (!sourceValues.every((value, index) => window[index]?.imlaei === value)) continue;
+          if (!sourceTokens.every((token, index) => {
+            const canonical = window[index]?.imlaei;
+            return canonical ? alignmentTokensMatch(token, canonical) : false;
+          })) continue;
 
           const touchedRecords = [...new Map(
             window.map(item => [item.record.id, item.record])
@@ -677,6 +681,7 @@ export class QuranAyahDetector {
       const sourceTokens = tokenizeArabic(source);
       if (sourceTokens.length >= 1) {
         const sourceValues = sourceTokens.map(token => token.value);
+        const sourceForms = sourceTokens.flatMap(tokenForms);
         const fragmentMatches: Array<{
           record: QuranAyahRecord;
           start: number;
@@ -684,7 +689,7 @@ export class QuranAyahDetector {
           replacementText: string;
         }> = [];
 
-        const exactCandidates = this.candidateRecordsForTokens(sourceValues);
+        const exactCandidates = this.candidateRecordsForTokens(sourceForms);
         for (const record of exactCandidates) {
           const preparedRecord = this.prepared(record);
           const imlaeiTokens = preparedRecord.imlaeiTokens;
@@ -735,8 +740,8 @@ export class QuranAyahDetector {
           let matchedOffset: number | undefined;
 
           for (const variant of canonicalVariants) {
-            const canonicalValues = variant.map(token => token.value);
-            for (let offset = 0; offset <= canonicalValues.length - sourceValues.length; offset += 1) {
+            const canonicalValues = variant;
+            for (let offset = 0; offset <= canonicalValues.length - sourceTokens.length; offset += 1) {
               // At the beginning of an ayah, very short generic openings are
               // not identifying evidence. Permit a single distinctive word
               // (e.g. "فأنشأنا") or a three-word opening ending in a distinctive
@@ -748,7 +753,7 @@ export class QuranAyahDetector {
                   (sourceValues.length === 3 && finalToken.length >= 4);
                 if (!distinctiveOpening) continue;
               }
-              if (!sourceValues.every((value, index) => canonicalValues[offset + index] === value)) continue;
+              if (!sourceTokens.every((token, index) => alignmentTokensMatch(token, canonicalValues[offset + index]!))) continue;
               matchedOffset = offset;
               break;
             }
@@ -823,7 +828,7 @@ export class QuranAyahDetector {
             replacementText: string;
           }>();
 
-          const fuzzyCandidates = this.candidateRecordsForAnyToken(sourceValues);
+          const fuzzyCandidates = this.candidateRecordsForAnyToken(sourceForms);
           for (const record of fuzzyCandidates) {
             const preparedRecord = this.prepared(record);
             const canonicalTokens = preparedRecord.imlaeiTokens;
