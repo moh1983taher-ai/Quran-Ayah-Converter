@@ -183,6 +183,14 @@ export function inspectAdjacentQuranCitation(
   const trailing = text.slice(verseEnd);
   const match = trailing.match(/^([\s،؛,.;:!?؟]*)(\[[^\]\r\n]{1,180}\])/u);
   if (!match) {
+    if (scope && verseEnd >= scope.end) {
+      return {
+        status: "outside-scope",
+        expectedCitation,
+        editable: false,
+        detail: "انتهى النص المحدد عند نهاية الآية؛ لم يُفحص ما بعدها خارج التحديد، لذلك لن يُضاف تخريج قد يكون موجودًا خارجه."
+      };
+    }
     return {
       status: "missing",
       expectedCitation,
