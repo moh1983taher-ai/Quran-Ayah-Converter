@@ -269,11 +269,15 @@ export class QuranAyahDetector {
       while (cursor < text.length) {
         const start = text.indexOf(open, cursor);
         if (start < 0) break;
-        const endMarker = text.indexOf(close, start + open.length);
+        const endMarker = findMatchingBracketEnd(text, open, close, start);
         if (endMarker < 0) break;
         const contentStart = start + open.length;
         const contentEnd = endMarker;
-        const content = text.slice(contentStart, contentEnd);
+        const rawContent = text.slice(contentStart, contentEnd);
+        // Inner Qur'anic delimiters are structural, not lexical content.
+        // Mask them with spaces (same UTF-16 length) so a full quoted ayah
+        // remains one continuous matching unit and source offsets stay stable.
+        const content = maskBracketMarkers(rawContent);
         const bracketStartedAt = performance.now();
         const matches = this.matchBracketedPassage(content, records);
         this.diagnostics.bracketPassageMs += performance.now() - bracketStartedAt;
@@ -1055,6 +1059,30 @@ function tokenEditDistance(
     previous = current;
   }
   return previous[right.length]!;
+}
+
+function findMatchingBracketEnd(text: string, open: string, close: string, start: number): number {
+  let depth = 1;
+  let cursor = start + open.length;
+  while (cursor < text.length) {
+    const nextOpen = text.indexOf(open, cursor);
+    const nextClose = text.indexOf(close, cursor);
+    if (nextClose < 0) return -1;
+    if (nextOpen >= 0 && nextOpen < nextClose) {
+      depth += 1;
+      cursor = nextOpen + open.length;
+      continue;
+    }
+    depth -= 1;
+    if (depth === 0) return nextClose;
+    cursor = nextClose + close.length;
+  }
+  return -1;
+}
+
+function maskBracketMarkers(content: string): string {
+  const markers = new Set(BRACKET_PAIRS.flatMap(([open, close]) => [open, close]));
+  return [...content].map(character => markers.has(character) ? " " : character).join("");
 }
 
 function isInsideBracketedQuotation(text: string, start: number, end: number): boolean {
