@@ -52,8 +52,9 @@ export function tokenizeNormalized(normalized: NormalizedText): AlignmentToken[]
     const daggerPositions = [...sourceToken.matchAll(/ٰ/gu)].map(item =>
       normalizeArabic(sourceToken.slice(0, item.index ?? 0)).length
     );
-    const tokenAlternatives = [...new Set(daggerPositions.map(position =>
-      tokenValue.slice(0, position) + "ا" + tokenValue.slice(position)
+    const tokenAlternatives = [...new Set(daggerPositions
+      .filter(position => position < tokenValue.length)
+      .map(position => tokenValue.slice(0, position) + "ا" + tokenValue.slice(position)
     ))].filter(value => value !== tokenValue);
     const previous = tokens[tokens.length - 1];
     if (
