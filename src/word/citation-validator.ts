@@ -1,7 +1,7 @@
 import type { QuranIndex, AyahReference, QuranAyahRecord } from "../core/types.js";
 import { normalizeArabic } from "../core/normalizer.js";
 
-export type CitationStatus = "valid" | "invalid" | "ambiguous" | "unrecognized";
+export type CitationStatus = "valid" | "invalid" | "ambiguous" | "unrecognized" | "mismatch";
 export interface QuranCitationIssue {
   start: number;
   end: number;
