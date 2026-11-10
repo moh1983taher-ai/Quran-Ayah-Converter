@@ -51,6 +51,11 @@ describe("QuranAyahDetector", () => {
     expect(matches[0]?.references).toEqual([{ surah: 16, ayah: 114 }]);
     expect(matches[0]?.matchedText).toBe(source);
     expect(matches[0]?.replacementText).toContain("حَلَٰلٗا");
+
+    const daggerSource = "﴿فَكُلُوا مِمَّا رَزَقَكُمُ اللَّهُ حَلَٰلٗا طَيِّبٗا وَاشْكُرُوا نِعْمَتَ اللَّهِ إِنْ كُنْتُمْ إِيَّاهُ تَعْبُدُونَ﴾";
+    const daggerMatches = localDetector.detect(daggerSource);
+    expect(daggerMatches).toHaveLength(1);
+    expect(daggerMatches[0]?.references).toEqual([{ surah: 16, ayah: 114 }]);
   });
 
   it("matches the supplied Al-Baqarah 90 quotation across Uthmani alif-of-waw spelling", () => {
