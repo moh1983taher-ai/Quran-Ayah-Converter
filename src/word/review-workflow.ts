@@ -235,3 +235,22 @@ export function getReviewSelectionCounts(items: readonly ReviewItem[]): {
     approvedCount: items.filter(item => item.decision === "approved").length
   };
 }
+
+
+/**
+ * Creates review items for one isolated source scope (for example, one Word
+ * paragraph intersection). The offsets remain local to that scope, while the
+ * prefixed identity prevents collisions between identical text in paragraphs.
+ */
+export function createScopedReviewItems(
+  sourceText: string,
+  matches: readonly AyahMatch[],
+  scopeId: string,
+  contextDetail: string
+): ReviewItem[] {
+  return createReviewItems(sourceText, matches).map(item => ({
+    ...item,
+    id: `${scopeId}:${item.id}`,
+    evidence: [...item.evidence, { type: "context" as const, detail: contextDetail }]
+  }));
+}
