@@ -24,6 +24,7 @@
         <div class="scan-actions">
           <button id="scanButton" class="primary-button"><span>⌕</span> فحص المستند</button>
           <button id="scanSelectionButton" class="secondary-button">فحص النص المحدد</button>
+          <button id="validateCitationsButton" class="secondary-button">التحقق من التخريجات</button>
         </div>
       </div>
       <div class="hero-seal" aria-hidden="true"><div class="seal-inner">﷽<small>رواية حفص</small></div></div>
@@ -73,6 +74,7 @@
         </div>
       </div>
     </section>
+    <section id="citationValidationPanel" class="results" hidden><div class="section-heading"><div><span class="section-kicker">تحقق مستقل</span><h2>تخريجات الآيات <b id="citationValidationCount">0</b></h2></div></div><div id="citationValidationResults"></div></section>
     <section class="section-heading"><div><span class="section-kicker">لوحة المراجعة</span><h2>الآيات المكتشفة <b id="resultCount">0</b></h2></div><div class="selection-actions"><button class="text-button" id="selectAll" disabled>تحديد الكل</button><button class="text-button" id="selectNone" disabled>إلغاء التحديد</button></div></section>
     <section class="citation-option" aria-label="خيارات تخريج الآيات">
       <label class="check-row citation-check">
