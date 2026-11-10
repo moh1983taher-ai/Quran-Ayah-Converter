@@ -41,6 +41,7 @@ export function tokenizeNormalized(normalized: NormalizedText): AlignmentToken[]
     // (e.g. source "فباؤوا" versus canonical "فباءو"). Treat that
     // final alif as a spelling convention at token level, not as a
     // character-level fuzzy substitution. Source offsets remain untouched.
+    const sourceToken = normalized.sourceText.slice(mapped.start, mapped.end);
     // In the Uthmani form حَلَٰلٗا, the dagger alif represents the
     // ordinary alif in the imlaei spelling حَلَالًا. Keep this narrow
     // equivalence here; dagger alif is not an alif in every Qur'anic word.
