@@ -196,6 +196,27 @@ export class QuranAyahDetector {
       );
   }
 
+  /** Each source token may match any one of its exact orthographic forms. */
+  private candidateRecordsForTokenGroups(groups: readonly (readonly string[])[]): QuranAyahRecord[] {
+    if (groups.length === 0) return [];
+    const postings = groups.map(group => {
+      const union = new Set<QuranAyahRecord>();
+      for (const value of group) {
+        for (const record of this.tokenPostings(value)) union.add(record);
+      }
+      return union;
+    });
+    if (postings.some(posting => posting.size === 0)) return [];
+    const anchor = postings.reduce((smallest, posting) =>
+      posting.size < smallest.size ? posting : smallest
+    );
+    return [...anchor]
+      .filter(record => postings.every(posting => posting.has(record)))
+      .sort((left, right) =>
+        (this.recordPositions.get(left) ?? 0) - (this.recordPositions.get(right) ?? 0)
+      );
+  }
+
   /** Return records sharing at least one token (including conjunction variants). */
   private candidateRecordsForAnyToken(values: readonly string[]): QuranAyahRecord[] {
     const found = new Set<QuranAyahRecord>();
@@ -690,7 +711,7 @@ export class QuranAyahDetector {
           replacementText: string;
         }> = [];
 
-        const exactCandidates = this.candidateRecordsForTokens(sourceForms);
+        const exactCandidates = this.candidateRecordsForTokenGroups(sourceTokens.map(tokenForms));
         for (const record of exactCandidates) {
           const preparedRecord = this.prepared(record);
           const imlaeiTokens = preparedRecord.imlaeiTokens;
