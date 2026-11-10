@@ -766,6 +766,46 @@ export class QuranAyahDetector {
       }
     }
 
+    // A bracketed quotation is matched as a whole passage. Do not search
+    // for a shorter canonical ayah *inside* a longer quotation: that was the
+    // route that allowed an inner phrase to be stolen by another surah.
+    // Exact excerpts (source inside ayah) and bounded fuzzy excerpts have
+    // already been considered above. Preserve exact multi-ayah quotations by
+    // accepting only equality with a contiguous sequence of complete ayahs.
+    if (allowShort) {
+      const sourceValue = normalizedText.trim();
+      const sourceTokens = tokenizeArabic(source).map(token => token.value);
+      const starts = sourceTokens.length
+        ? this.candidateRecordsForAnyToken(sourceTokens)
+        : [];
+      for (const startRecord of starts) {
+        const index = this.recordPositions.get(startRecord) ?? records.indexOf(startRecord);
+        if (index < 0) continue;
+        const group: QuranAyahRecord[] = [];
+        let combined = "";
+        for (let j = index; j < records.length && group.length < this.options.maximumAyahsPerMatch; j += 1) {
+          const current = records[j];
+          if (!current) break;
+          if (group.length > 0) {
+            const previous = group[group.length - 1]!;
+            if (current.surah !== previous.surah || current.ayah !== previous.ayah + 1) break;
+          }
+          group.push(current);
+          combined += (combined ? " " : "") + this.prepared(current).imlaeiNormalized;
+          if (combined === sourceValue) {
+            return [{
+              start: 0,
+              end: source.length,
+              records: [...group],
+              evidence: [{ type: "exact-text", detail: "تطابق كامل لمجموعة آيات متتابعة" }],
+              confidence: 0.995
+            }];
+          }
+        }
+      }
+      return [];
+    }
+
     let best: {
       start: number;
       end: number;
@@ -1043,11 +1083,13 @@ function tokenEditDistance(
     current[0] = row;
     let rowMinimum = current[0]!;
     for (let column = 1; column <= right.length; column += 1) {
-      // Fuzzy quotation matching may tolerate an omitted/extra word,
-      // but never a substituted word: substitutions can conceal a changed
-      // Qur'anic letter (e.g. فاتقوا vs واتقوا).
+      // At word level, allow only a one-character insertion/deletion inside
+      // a token (e.g. a dropped final alif), never a character substitution.
+      const sameOrOneCharacterInsertionDeletion =
+        left[row - 1] === right[column - 1] ||
+        differsByOneInsertedCharacter(left[row - 1]!, right[column - 1]!);
       const substitution = previous[column - 1]! +
-        (left[row - 1] === right[column - 1] ? 0 : maximumDistance + 1);
+        (sameOrOneCharacterInsertionDeletion ? (left[row - 1] === right[column - 1] ? 0 : 1) : maximumDistance + 1);
       current[column] = Math.min(
         previous[column]! + 1,
         current[column - 1]! + 1,
@@ -1059,6 +1101,27 @@ function tokenEditDistance(
     previous = current;
   }
   return previous[right.length]!;
+}
+
+function differsByOneInsertedCharacter(left: string, right: string): boolean {
+  if (Math.abs(left.length - right.length) !== 1) return false;
+  const shorter = left.length < right.length ? left : right;
+  const longer = left.length < right.length ? right : left;
+  let shortIndex = 0;
+  let longIndex = 0;
+  let skipped = false;
+  while (shortIndex < shorter.length && longIndex < longer.length) {
+    if (shorter[shortIndex] === longer[longIndex]) {
+      shortIndex += 1;
+      longIndex += 1;
+    } else if (skipped) {
+      return false;
+    } else {
+      skipped = true;
+      longIndex += 1;
+    }
+  }
+  return true;
 }
 
 function findMatchingBracketEnd(text: string, open: string, close: string, start: number): number {
