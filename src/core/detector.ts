@@ -274,6 +274,13 @@ export class QuranAyahDetector {
         const contentStart = start + open.length;
         const contentEnd = endMarker;
         const rawContent = text.slice(contentStart, contentEnd);
+        // Nested delimiters make the quotation's intended boundaries uncertain.
+        // Do not salvage inner or partial matches from this structurally ambiguous
+        // span; a later explicit correction can safely resolve it.
+        if (containsBracketPair(rawContent)) {
+          cursor = endMarker + close.length;
+          continue;
+        }
         // Inner Qur'anic delimiters are structural, not lexical content.
         // Mask them with spaces (same UTF-16 length) so a full quoted ayah
         // remains one continuous matching unit and source offsets stay stable.
@@ -586,6 +593,9 @@ export class QuranAyahDetector {
         for (const record of exactCandidates) {
           const preparedRecord = this.prepared(record);
           const imlaeiTokens = preparedRecord.imlaeiTokens;
+          // A short phrase may be an excerpt from a longer ayah, but a
+          // quotation longer than this candidate cannot be attributed to it.
+          if (sourceValues.length > imlaeiTokens.length) continue;
           const uthmaniTokens = preparedRecord.uthmaniTokens;
 
           // Search the normalized Uthmani string as a whole before token
@@ -1141,6 +1151,10 @@ function findMatchingBracketEnd(text: string, open: string, close: string, start
     cursor = nextClose + close.length;
   }
   return -1;
+}
+
+function containsBracketPair(content: string): boolean {
+  return BRACKET_PAIRS.some(([open]) => content.includes(open));
 }
 
 function maskBracketMarkers(content: string): string {
