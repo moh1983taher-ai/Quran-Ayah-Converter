@@ -393,6 +393,45 @@ describe("fuzzy token alignment", () => {
 });
 
 
+describe("multi-ayah bracketed excerpt continuity", () => {
+  it("recognizes a complete bracketed passage spanning consecutive ayahs with يا آدم spacing normalization", () => {
+    const passageRecords: QuranAyahRecord[] = [
+      {
+        id: "2:35", surah: 2, ayah: 35, surahNameArabic: "البقرة",
+        uthmani: "وَقُلْنَا يَٰٓـَٔادَمُ اسْكُنْ أَنتَ وَزَوْجُكَ الْجَنَّةَ وَكُلَا مِنْهَا رَغَدًا حَيْثُ شِئْتُمَا وَلَا تَقْرَبَا هَٰذِهِ الشَّجَرَةَ فَتَكُونَا مِنَ الظَّالِمِينَ",
+        imlaei: "وَقُلْنَا ياآدم اسكن أنت وزوجك الجنة وكلا منها رغدا حيث شئتما ولا تقربا هذه الشجرة فتكونا من الظالمين"
+      },
+      {
+        id: "2:36", surah: 2, ayah: 36, surahNameArabic: "البقرة",
+        uthmani: "فَأَزَلَّهُمَا الشَّيْطَٰنُ عَنْهَا فَأَخْرَجَهُمَا مِمَّا كَانَا فِيهِ وَقُلْنَا اهْبِطُوا بَعْضُكُمْ لِبَعْضٍ عَدُوٌّ وَلَكُمْ فِي الْأَرْضِ مُسْتَقَرٌّ وَمَتَاعٌ إِلَىٰ حِينٍ",
+        imlaei: "فأزلهما الشيطان عنها فأخرجهما مما كانا فيه وقلنا اهبطوا بعضكم لبعض عدو ولكم في الأرض مستقر ومتاع إلى حين"
+      },
+      {
+        id: "2:37", surah: 2, ayah: 37, surahNameArabic: "البقرة",
+        uthmani: "فَتَلَقَّىٰ آدَمُ مِنْ رَبِّهِ كَلِمَٰتٍ فَتَابَ عَلَيْهِ إِنَّهُ هُوَ التَّوَّابُ الرَّحِيمُ",
+        imlaei: "فتلقى آدم من ربه كلمات فتاب عليه إنه هو التواب الرحيم"
+      }
+    ];
+    const passageDetector = new QuranAyahDetector(new InMemoryQuranIndex(passageRecords));
+    const text = "قال تعالى ﴿وَقُلْنَا يَا آدَمُ اسْكُنْ أَنْتَ وَزَوْجُكَ الْجَنَّةَ وَكُلَا مِنْهَا رَغَدًا حَيْثُ شِئْتُمَا وَلَا تَقْرَبَا هَٰذِهِ الشَّجَرَةَ فَتَكُونَا مِنَ الظَّالِمِينَ * فَأَزَلَّهُمَا الشَّيْطَانُ عَنْهَا فَأَخْرَجَهُمَا مِمَّا كَانَا فِيهِ ۖ وَقُلْنَا اهْبِطُوا بَعْضُكُمْ لِبَعْضٍ عَدُوٌّ ۖ وَلَكُمْ فِي الْأَرْضِ مُسْتَقَرٌّ وَمَتَاعٌ إِلَىٰ حِينٍ * فَتَلَقَّىٰ آدَمُ مِنْ رَبِّهِ كَلِمَاتٍ فَتَابَ عَلَيْهِ ۚ إِنَّهُ هُوَ التَّوَّابُ الرَّحِيمُ﴾ [البقرة الآيات ٣٥-٣٨]";
+    const matches = passageDetector.detect(text);
+    const match = matches.find(item =>
+      item.references.some(reference => reference.surah === 2 && reference.ayah === 35)
+    );
+
+    expect(match).toBeDefined();
+    expect(matches.filter(item => item.sourceStart >= text.indexOf("﴿") &&
+      item.sourceEnd <= text.indexOf("﴾") + 1)).toHaveLength(1);
+    expect(match?.references).toEqual([
+      { surah: 2, ayah: 35 },
+      { surah: 2, ayah: 36 },
+      { surah: 2, ayah: 37 }
+    ]);
+    expect(text.slice(match!.sourceStart, match!.sourceEnd)).toBe(text.slice(text.indexOf("﴿"), text.indexOf("﴾") + 1));
+    expect(match?.replacementText).toBeDefined();
+  });
+});
+
 describe("bracketed quotation integrity", () => {
   it("does not replace a full Hūd 11:78 quotation with the partial Hijr 15:69 phrase when فاء changes to واو", () => {
     const hud: QuranAyahRecord = {
