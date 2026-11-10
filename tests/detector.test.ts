@@ -425,4 +425,24 @@ describe("bracketed quotation integrity", () => {
     expect(spaced.some(match => match.references.some(ref => ref.surah === 2 && ref.ayah === 35))).toBe(true);
     expect(joined.some(match => match.references.some(ref => ref.surah === 2 && ref.ayah === 35))).toBe(true);
   });
+
+  it("treats nested Qur'anic brackets as one complete outer quotation", () => {
+    const hud: QuranAyahRecord = {
+      id: "11:78", surah: 11, ayah: 78, surahNameArabic: "هود",
+      uthmani: "وَجَآءَهُۥ قَوْمُهُۥ يُهْرَعُونَ إِلَيْهِ وَمِن قَبْلُ كَانُواْ يَعْمَلُونَ السَّيِّئَاتِ قَالَ يَا قَوْمِ هَٰؤُلَاءِ بَنَاتِي هُنَّ أَطْهَرُ لَكُمْ فَاتَّقُواْ اللَّهَ وَلَا تُخْزُونِ فِي ضَيْفِي أَلَيْسَ مِنْكُمْ رَجُلٌ رَشِيدٌ",
+      imlaei: "وجاءه قومه يهرعون اليه ومن قبل كانوا يعملون السيئات قال يا قوم هؤلاء بناتي هن اطهر لكم فاتقوا الله ولا تخزون في ضيفي اليس منكم رجل رشيد"
+    };
+    const hijr: QuranAyahRecord = {
+      id: "15:69", surah: 15, ayah: 69, surahNameArabic: "الحجر",
+      uthmani: "وَاتَّقُوا اللَّهَ وَلَا تُخْزُونِ",
+      imlaei: "واتقوا الله ولا تخزون"
+    };
+    const detector = new QuranAyahDetector(new InMemoryQuranIndex([hud, hijr]));
+    const text = "قال تعالى ﴿قال يا قوم هؤلاء بناتي هن أطهر لكم ۖ ﴿واتقوا الله ولا تخزون﴾ في ضيفي ۖ أليس منكم رجل رشيد﴾";
+    const matches = detector.detect(text);
+    expect(matches.some(match => match.references.some(ref => ref.surah === 15 && ref.ayah === 69))).toBe(false);
+    expect(matches.some(match => match.references.some(ref => ref.surah === 11 && ref.ayah === 78))).toBe(false);
+    expect(matches.every(match => text.slice(match.sourceStart, match.sourceEnd) !== "واتقوا الله ولا تخزون")).toBe(true);
+  });
+
 });
