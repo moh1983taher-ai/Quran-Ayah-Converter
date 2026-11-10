@@ -49,7 +49,11 @@ export function tokenizeNormalized(normalized: NormalizedText): AlignmentToken[]
       previous.value += match[0].startsWith("ا") ? match[0].slice(1) : match[0];
       previous.end = mapped.end;
     } else {
-      tokens.push({ value: match[0], start: mapped.start, end: mapped.end });
+      // In joined vocatives, alef normalization can leave a doubled alef
+      // after "يا" (ياآدم -> ياادم). Collapse that one orthographic boundary
+      // so it is identical to the already-supported spaced form (يا آدم).
+      const value = match[0].replace(/^ياا(?=.)/u, "يا");
+      tokens.push({ value, start: mapped.start, end: mapped.end });
     }
   }
   return tokens;
