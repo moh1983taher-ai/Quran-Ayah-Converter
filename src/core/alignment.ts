@@ -121,9 +121,6 @@ export function alignTokenSequence(
   canonicalTokens: readonly (string | AlignmentToken)[],
   sourceTokens: readonly AlignmentToken[]
 ): Omit<TokenAlignment, "sourceStart" | "sourceEnd" | "sourceTokenCount"> {
-  const canonicalValues = canonicalTokens.map(token =>
-    typeof token === "string" ? token : token.value
-  );
   const matches = (canonical: string | AlignmentToken, source: AlignmentToken | undefined) => {
     if (!source) return false;
     const canonicalForms = typeof canonical === "string"
@@ -203,10 +200,10 @@ export function findFuzzyTokenAlignments(
     const values = typeof token === "string" ? [token] : [token.value, ...(token.alternatives ?? [])];
     for (const value of values) {
       for (const sourceIndex of prepared.positions.get(value) ?? []) {
-      for (let shift = -1; shift <= 1; shift += 1) {
-        const start = sourceIndex - canonicalIndex + shift;
-        if (start >= 0 && start < sourceTokens.length) candidateStarts.add(start);
-      }
+        for (let shift = -1; shift <= 1; shift += 1) {
+          const start = sourceIndex - canonicalIndex + shift;
+          if (start >= 0 && start < sourceTokens.length) candidateStarts.add(start);
+        }
       }
     }
   });
