@@ -13,6 +13,7 @@ export interface QuranCitationReview {
   status: QuranCitationReviewStatus;
   expectedCitation: string;
   existingCitation?: string;
+  separator?: string;
   /** UTF-16 offsets of the adjacent bracketed citation in the inspected text. */
   start?: number;
   end?: number;
@@ -221,6 +222,7 @@ export function inspectAdjacentQuranCitation(
       status: "outside-scope",
       expectedCitation,
       existingCitation,
+      separator: match[1]!.slice(0, match[1]!.length),
       start,
       end,
       editable: false,
@@ -234,6 +236,7 @@ export function inspectAdjacentQuranCitation(
       status: "ambiguous",
       expectedCitation,
       existingCitation,
+      separator: match[1]!.slice(0, match[1]!.length),
       start,
       end,
       editable: false,
@@ -246,6 +249,7 @@ export function inspectAdjacentQuranCitation(
       status: "incorrect",
       expectedCitation,
       existingCitation,
+      separator: match[1]!,
       start,
       end,
       editable: true,
@@ -257,6 +261,7 @@ export function inspectAdjacentQuranCitation(
     status: "correct",
     expectedCitation,
     existingCitation,
+    separator: match[1]!,
     start,
     end,
     editable: true,
