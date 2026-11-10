@@ -3,7 +3,7 @@ import { normalizeArabic } from "../core/normalizer.js";
 import { loadQuranDatasetJson } from "../core/dataset-loader.js";
 import { createReviewItems, createScopedReviewItems, getReviewSelectionCounts, groupBracketedAyahMatches, setReviewDecision, type ReviewItem } from "./review-workflow.js";
 import { ensureOrnamentalVerseBrackets } from "./verse-format.js";
-import { formatQuranCitation, hasMatchingQuranCitation, inspectAdjacentQuranCitation } from "./quran-citation.js";
+import { formatQuranCitation, inspectAdjacentQuranCitation } from "./quran-citation.js";
 import { findLegacyBracketPairs, type MatchedBracketPair } from "./bracket-normalizer.js";
 import { validateQuranCitations, type QuranCitationIssue } from "./citation-validator.js";
 
