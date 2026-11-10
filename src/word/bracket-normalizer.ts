@@ -13,6 +13,7 @@ export const ORNAMENTAL_BRACKET_PAIRS = [
   ["ﮉ", "ﮈ"],
   ["ﮋ", "ﮊ"],
   ["ﵡ", "ﵠ"],
+  ["ﵟ", "ﵞ"],
   ["", ""]
 ] as const;
 
