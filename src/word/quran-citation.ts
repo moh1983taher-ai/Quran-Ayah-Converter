@@ -69,6 +69,41 @@ export function composeQuranCitationReplacement(
   }
 }
 
+/**
+ * Revalidates the citation against the current source text, then prepares the
+ * requested addition/correction from that fresh result. Keeping inspection
+ * and composition together prevents correction from relying on stale scan
+ * metadata.
+ */
+export function verifyAndComposeQuranCitationReplacement(
+  verseText: string,
+  sourceText: string,
+  verseEnd: number,
+  expectedCitation: string | undefined,
+  expectedReferences: readonly AyahReference[],
+  index: QuranIndex,
+  options: QuranCitationOperationOptions,
+  scope?: CitationReviewScope
+): { review: QuranCitationReview; replacementText: string } {
+  const review = inspectAdjacentQuranCitation(
+    sourceText,
+    verseEnd,
+    expectedCitation,
+    expectedReferences,
+    index,
+    scope
+  );
+  return {
+    review,
+    replacementText: composeQuranCitationReplacement(
+      verseText,
+      review,
+      expectedCitation,
+      options
+    )
+  };
+}
+
 /** Build source-backed citations from verified dataset identities only. */
 export function formatQuranCitation(references: readonly AyahReference[], index: QuranIndex): string | undefined {
   if (!references.length) return undefined;
