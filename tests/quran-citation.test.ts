@@ -130,6 +130,8 @@ describe("adjacent Quran citation review", () => {
 describe("independent Quran citation operations", () => {
   const verse = "﴿نص الآية﴾";
   const expected = "[النساء: 30]";
+  const refs = [{ surah: 4, ayah: 30 }];
+  const index = indexFor(refs);
   const options = (addMissing: boolean, correctExisting: boolean) => ({
     addMissing,
     correctExisting
