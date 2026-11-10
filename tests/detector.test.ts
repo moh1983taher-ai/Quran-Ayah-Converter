@@ -35,6 +35,24 @@ const records: QuranAyahRecord[] = [
 describe("QuranAyahDetector", () => {
   const detector = new QuranAyahDetector(new InMemoryQuranIndex(records));
 
+  it("matches the supplied Al-Baqarah 90 quotation across Uthmani alif-of-waw spelling", () => {
+    const ayahRecord: QuranAyahRecord = {
+      id: "2:90",
+      surah: 2,
+      ayah: 90,
+      surahNameArabic: "البقرة",
+      imlaei: "بئسما اشتروا به انفسهم ان يكفروا بما انزل الله بغيا ان ينزل الله من فضله على من يشاء من عباده فباؤوا بغضب على غضب وللكافرين عذاب مهين",
+      uthmani: "بِئْسَمَا اشْتَرَوْا بِهِ أَنفُسَهُمْ أَن يَكْفُرُواْ بِمَا أَنزَلَ اللَّهُ بَغْيًا أَن يُنَزِّلَ اللَّهُ مِن فَضْلِهِ عَلَى مَن يَشَاءُ مِنْ عِبَادِهِ فَبَآءُو بِغَضَبٍ عَلَىٰ غَضَبٍ وَلِلْكَافِرِينَ عَذَابٌ مُّهِينٌ"
+    };
+    const localDetector = new QuranAyahDetector(new InMemoryQuranIndex([ayahRecord]));
+    const source = "﴿بِئْسَمَا اشْتَرَوْا بِهِ أَنفُسَهُمْ أَن يَكْفُرُواْ بِمَا أَنزَلَ اللَّهُ بَغْيًا أَن يُنَزِّلَ اللَّهُ مِن فَضْلِهِ عَلَى مَن يَشَاء مِنْ عِبَادِهِ فَبَاؤُواْ بِغَضَبٍ عَلَى غَضَبٍ وَلِلْكَافِرِينَ عَذَابٌ مُّهِينٌ﴾";
+    const matches = localDetector.detect(source);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.references).toEqual([{ surah: 2, ayah: 90 }]);
+    expect(matches[0]?.matchedText).toBe(source);
+    expect(matches[0]?.replacementText).toBeDefined();
+  });
+
   it("detects a fully quoted ayah between Quran brackets", () => {
     const text = "قال تعالى ﴿بسم الله الرحمن الرحيم﴾ ثم تابع.";
     const matches = detector.detect(text);
