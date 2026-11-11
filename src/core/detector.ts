@@ -1057,10 +1057,18 @@ export class QuranAyahDetector {
           // Ignore ordinary vocalization variants (fatha, kasra, tanween, sukun)
           // and equivalent dagger-alif notation, but preserve shadda and the
           // underlying letters so genuinely different surfaces remain distinct.
-          const sourceSurface = normalizeUthmaniSurface(source.slice(first.start, first.end));
-          const surfaceMatches = fragmentMatches.filter(found =>
-            normalizeUthmaniSurface(found.replacementText) === sourceSurface
-          );
+          const sourceExcerpt = source.slice(first.start, first.end);
+          const sourceSurface = normalizeUthmaniSurface(sourceExcerpt);
+          // Absence of marks is not evidence: an unvocalized quotation must
+          // not arbitrarily select one of several Uthmani spellings. Apply
+          // surface narrowing only when the document actually carries a
+          // distinguishing mark such as shadda or dagger alif.
+          const hasDistinguishingMark = /[ّٰۥۦ]/u.test(sourceExcerpt);
+          const surfaceMatches = hasDistinguishingMark
+            ? fragmentMatches.filter(found =>
+                normalizeUthmaniSurface(found.replacementText) === sourceSurface
+              )
+            : [];
           const selectedFragmentMatches = surfaceMatches.length > 0
             ? surfaceMatches
             : fragmentMatches;
