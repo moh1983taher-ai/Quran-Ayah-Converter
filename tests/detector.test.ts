@@ -4,6 +4,7 @@ import { QuranAyahDetector } from "../src/core/detector.js";
 import { InMemoryQuranIndex } from "../src/core/quran-index.js";
 import type { QuranAyahRecord } from "../src/core/types.js";
 import { normalizeArabic } from "../src/core/normalizer.js";
+import { createReviewItems } from "../src/word/review-workflow.js";
 
 const records: QuranAyahRecord[] = [
   {
@@ -352,6 +353,9 @@ describe("QuranAyahDetector", () => {
     expect(normalizeArabic(matches[0]?.replacementText ?? "")).toBe(normalizeArabic("إِلَّا مَا قَدْ سَلَف"));
     expect(matches[0]?.replacementText).not.toContain("ۚ");
     expect(matches[0]?.replacementText).not.toContain("ۗ");
+    const [card] = createReviewItems(text, matches);
+    expect(card?.originalText).toBe(`﴿${quote}﴾`);
+    expect(normalizeArabic(card?.replacementText ?? "")).toBe(normalizeArabic("إِلَّا مَا قَدْ سَلَف"));
   });
 
   it("does not guess the identity of a repeated short bracketed excerpt", () => {
