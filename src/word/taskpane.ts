@@ -1062,8 +1062,10 @@ async function applyApprovedReplacements(): Promise<void> {
     paragraphIndex: number;
     start: number;
     end: number;
+    verseEnd: number;
     citationVerseEnd: number;
     expectedText: string;
+    citationExpectedText?: string;
   };
   type ResolvedApplyEntry = ApplyEntry & { range: WordRange; paragraphText: string };
 
