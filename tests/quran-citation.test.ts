@@ -4,6 +4,7 @@ import {
   formatQuranCitation,
   hasMatchingQuranCitation,
   inspectAdjacentQuranCitation,
+  resolveQuranCitationOperationOptions,
   verifyAndComposeQuranCitationReplacement
 } from "../src/word/quran-citation.js";
 import type { AyahReference, QuranAyahRecord, QuranIndex } from "../src/core/types.js";
@@ -205,7 +206,10 @@ describe("independent Quran citation operations", () => {
       .toBe(`${verse}  ${wrong}`);
   });
 
-  it("supports enabling addition and correction together without mixing their targets", () => {
+  it("keeps verification and correction exclusive from adding missing citations", () => {
+    const selectedOptions = resolveQuranCitationOperationOptions(true, true);
+    expect(selectedOptions).toEqual({ addMissing: false, correctExisting: true });
+
     const missing = {
       status: "missing" as const,
       expectedCitation: expected,
@@ -220,10 +224,16 @@ describe("independent Quran citation operations", () => {
       editable: true,
       detail: "incorrect"
     };
+
     expect(composeQuranCitationReplacement(verse, missing, expected, options(true, true)))
-      .toBe(`${verse} ${expected}`);
+      .toBe(verse);
     expect(composeQuranCitationReplacement(verse, wrong, expected, options(true, true)))
       .toBe(`${verse} ${expected}`);
+  });
+
+  it("keeps add-only mode separate when correction is not selected", () => {
+    expect(resolveQuranCitationOperationOptions(true, false))
+      .toEqual({ addMissing: true, correctExisting: false });
   });
 
   it("does not modify correct, ambiguous, out-of-scope, or unavailable citations", () => {

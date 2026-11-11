@@ -36,6 +36,20 @@ export interface QuranCitationOperationOptions {
 }
 
 /**
+ * Resolves the mutually exclusive citation modes.
+ * Correction/verification always takes precedence: it must never add a
+ * citation to a quotation that currently has no adjacent reference.
+ */
+export function resolveQuranCitationOperationOptions(
+  addMissingSelected: boolean,
+  correctExistingSelected: boolean
+): QuranCitationOperationOptions {
+  return correctExistingSelected
+    ? { addMissing: false, correctExisting: true }
+    : { addMissing: addMissingSelected, correctExisting: false };
+}
+
+/**
  * Applies citation actions without conflating insertion with correction.
  * Existing incorrect citations are preserved unless correction is explicitly
  * enabled. Ambiguous, out-of-scope and unavailable cases are never modified.
@@ -48,15 +62,19 @@ export function composeQuranCitationReplacement(
 ): string {
   if (!review) return verseText;
 
+  const { addMissing, correctExisting } = resolveQuranCitationOperationOptions(
+    options.addMissing,
+    options.correctExisting
+  );
   const separator = review.separator ?? " ";
   switch (review.status) {
     case "missing":
-      return options.addMissing && expectedCitation
+      return addMissing && expectedCitation
         ? `${verseText}${separator}${expectedCitation}`
         : verseText;
 
     case "incorrect": {
-      const citation = options.correctExisting
+      const citation = correctExisting
         ? expectedCitation
         : review.existingCitation;
       return citation ? `${verseText}${separator}${citation}` : verseText;

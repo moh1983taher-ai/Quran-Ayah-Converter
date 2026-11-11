@@ -3,7 +3,7 @@ import { normalizeArabic } from "../core/normalizer.js";
 import { loadQuranDatasetJson } from "../core/dataset-loader.js";
 import { createReviewItems, createScopedReviewItems, getReviewSelectionCounts, groupBracketedAyahMatches, setReviewDecision, type ReviewItem } from "./review-workflow.js";
 import { ensureOrnamentalVerseBrackets } from "./verse-format.js";
-import { composeQuranCitationReplacement, formatQuranCitation, inspectAdjacentQuranCitation, verifyAndComposeQuranCitationReplacement, type QuranCitationReview } from "./quran-citation.js";
+import { composeQuranCitationReplacement, formatQuranCitation, inspectAdjacentQuranCitation, resolveQuranCitationOperationOptions, verifyAndComposeQuranCitationReplacement, type QuranCitationReview } from "./quran-citation.js";
 import { findLegacyBracketPairs, type MatchedBracketPair } from "./bracket-normalizer.js";
 
 
@@ -1042,8 +1042,12 @@ async function applyApprovedReplacements(): Promise<void> {
   if (!approved.length) return;
 
   const button = byId<HTMLButtonElement>("applyButton");
-  const addCitations = byId<HTMLInputElement>("addCitations").checked;
-  const correctCitations = byId<HTMLInputElement>("correctCitations").checked;
+  const citationOptions = resolveQuranCitationOperationOptions(
+    byId<HTMLInputElement>("addCitations").checked,
+    byId<HTMLInputElement>("correctCitations").checked
+  );
+  const addCitations = citationOptions.addMissing;
+  const correctCitations = citationOptions.correctExisting;
   const citationOptionsEnabled = addCitations || correctCitations;
   type ApplyEntry = {
     item: ReviewItem;
@@ -1085,7 +1089,9 @@ async function applyApprovedReplacements(): Promise<void> {
       3,
       citationOptionsEnabled ? "التحقق من التخريجات وتجهيز التصحيح" : "تجهيز التحويل",
       citationOptionsEnabled
-        ? `إعادة فحص ${ordered.length.toLocaleString("ar")} تخريجًا معتمدًا قبل الإضافة أو التصحيح`
+        ? correctCitations
+          ? `إعادة فحص ${ordered.length.toLocaleString("ar")} تخريجًا معتمدًا؛ تصحيح الخاطئ فقط دون إضافة تخريجات جديدة`
+          : `إعادة فحص ${ordered.length.toLocaleString("ar")} موضعًا؛ إضافة التخريجات المفقودة فقط`
         : `إعداد النص البديل لـ ${ordered.length.toLocaleString("ar")} موضعًا وفق الخيارات المحددة`
     );
     await yieldToUi();
@@ -1392,6 +1398,14 @@ async function applyApprovedReplacements(): Promise<void> {
   }
 }
 Office.onReady(() => {
+  const addCitationsControl = byId<HTMLInputElement>("addCitations");
+  const correctCitationsControl = byId<HTMLInputElement>("correctCitations");
+  addCitationsControl.addEventListener("change", () => {
+    if (addCitationsControl.checked) correctCitationsControl.checked = false;
+  });
+  correctCitationsControl.addEventListener("change", () => {
+    if (correctCitationsControl.checked) addCitationsControl.checked = false;
+  });
   byId<HTMLButtonElement>("scanButton").addEventListener("click", () => void inspectDocument());
   byId<HTMLButtonElement>("scanSelectionButton").addEventListener("click", () => void inspectSelectedText());
   byId<HTMLButtonElement>("scanBracketsButton").addEventListener("click", () => void inspectLegacyBrackets());
