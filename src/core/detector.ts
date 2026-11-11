@@ -82,7 +82,7 @@ function normalizeReferenceDigits(value: string): string {
  * It belongs in the final replacement text, but not in the lexical word stream
  * used to align the Uthmani words with the Imla'ei words.
  */
-function tokenizeUthmaniAyah(record: QuranAyahRecord): ReturnType<typeof tokenizeArabic> {
+export function tokenizeUthmaniAyah(record: QuranAyahRecord): ReturnType<typeof tokenizeArabic> {
   const tokens = tokenizeArabic(record.uthmani);
   const last = tokens[tokens.length - 1];
   if (!last || last.end !== record.uthmani.trimEnd().length) return tokens;
@@ -91,7 +91,7 @@ function tokenizeUthmaniAyah(record: QuranAyahRecord): ReturnType<typeof tokeniz
   const separatorStart = previous?.end ?? 0;
   const separator = record.uthmani.slice(separatorStart, last.start);
   const terminalDigits = normalizeReferenceDigits(record.uthmani.slice(last.start, last.end));
-  if (/^\\s+$/u.test(separator) && terminalDigits === String(record.ayah)) {
+  if (/^\s+$/u.test(separator) && terminalDigits === String(record.ayah)) {
     tokens.pop();
   }
   return tokens;
