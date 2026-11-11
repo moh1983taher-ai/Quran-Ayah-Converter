@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { QuranAyahDetector } from "../src/core/detector.js";
 import { InMemoryQuranIndex } from "../src/core/quran-index.js";
+import { createReviewItems } from "../src/word/review-workflow.js";
 import { kfgqpcHafsSamples } from "./fixtures/kfgqpc-hafs-samples.js";
 import type { QuranAyahRecord } from "../src/core/types.js";
 
@@ -43,7 +44,7 @@ describe("QuranAyahDetector with real KFGQPC Hafs v18 records", () => {
     const text = "ومن ألفاظ القرآن: من الجنة والناس.";
     const match = detector.detect(text).find(item => item.references.some(ref => ref.surah === 114 && ref.ayah === 6));
     expect(match).toBeDefined();
-    expect(match?.canonicalText).toBe(kfgqpcHafsSamples[4]?.uthmani);
+    expect(match?.canonicalText).toBe(kfgqpcHafsSamples.find(record => record.surah === 114 && record.ayah === 6)?.uthmani);
   });
   it("detects Al-Baqarah 2:90 despite Uthmani small-letter and diacritic differences", () => {
     const verse: QuranAyahRecord = {
@@ -61,6 +62,47 @@ describe("QuranAyahDetector with real KFGQPC Hafs v18 records", () => {
     expect(match?.status).not.toBe("ambiguous");
     expect(text.slice(match!.sourceStart, match!.sourceEnd)).toBe("﴿" + quote + "﴾");
     expect(match?.canonicalText).toBe(verse.uthmani);
+  });
+
+  it("detects a repeated three-ayah passage using its explicit range and creates one review card", () => {
+    const quote = "وَالَّذِينَ هُمْ لِفُرُوجِهِمْ حَافِظُونَ \\* إِلاَّ عَلَى أَزْوَاجِهِمْ أَوْ مَا مَلَكَتْ أَيْمَانُهُمْ فَإِنَّهُمْ غَيْرُ مَلُومِينَ \\* فَمَنِ ابْتَغَى وَرَاء ذَلِكَ فَأُولَئِكَ هُمُ الْعَادُونَ";
+    const text = `قال تعالى: ﴿${quote}﴾ [المؤمنون: ٥-٧]`;
+    const matches = detector.detect(text);
+    const passage = matches.find(item =>
+      item.references.length === 3 &&
+      item.references[0]?.surah === 23 &&
+      item.references[0]?.ayah === 5
+    );
+
+    expect(passage).toBeDefined();
+    expect(passage?.references).toEqual([
+      { surah: 23, ayah: 5 },
+      { surah: 23, ayah: 6 },
+      { surah: 23, ayah: 7 }
+    ]);
+    expect(text.slice(passage!.sourceStart, passage!.sourceEnd)).toBe(`﴿${quote}﴾`);
+    expect(passage?.replacementText).toContain("وَٱلَّذِينَ");
+    expect(createReviewItems(text, matches)).toHaveLength(1);
+  });
+
+  it("uses the explicit reference to distinguish the same passage repeated in Al-Maarij", () => {
+    const quote = "والذين هم لفروجهم حافظون \\* إلا على أزواجهم أو ما ملكت أيمانهم فإنهم غير ملومين \\* فمن ابتغى وراء ذلك فأولئك هم العادون";
+    const text = `﴿${quote}﴾ [المعارج: ٢٩-٣١]`;
+    const passage = detector.detect(text).find(item =>
+      item.references.some(ref => ref.surah === 70 && ref.ayah === 29)
+    );
+    expect(passage?.references).toEqual([
+      { surah: 70, ayah: 29 },
+      { surah: 70, ayah: 30 },
+      { surah: 70, ayah: 31 }
+    ]);
+    expect(createReviewItems(text, detector.detect(text))).toHaveLength(1);
+  });
+
+  it("does not choose between repeated multi-ayah passages when the explicit range is absent", () => {
+    const quote = "والذين هم لفروجهم حافظون \\* إلا على أزواجهم أو ما ملكت أيمانهم فإنهم غير ملومين \\* فمن ابتغى وراء ذلك فأولئك هم العادون";
+    const matches = detector.detect(`﴿${quote}﴾`);
+    expect(matches.every(item => item.status === "ambiguous")).toBe(true);
   });
 
 });
