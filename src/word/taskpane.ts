@@ -213,13 +213,14 @@ function updateApplyButton(): void {
   selectNoneButton.disabled = count === 0;
   selectNoneButton.textContent = count ? `إلغاء التحديد (${count})` : "إلغاء التحديد";
   const button = byId<HTMLButtonElement>("applyButton");
+  const anyOperation = byId<HTMLInputElement>("convertVerses").checked || byId<HTMLInputElement>("addCitations").checked || byId<HTMLInputElement>("correctCitations").checked;
 
   if (applyFeedbackState === "running") {
     button.disabled = true;
     return;
   }
   if (applyFeedbackState === "completed") {
-    button.disabled = count === 0;
+    button.disabled = count === 0 || !anyOperation;
     button.removeAttribute("aria-busy");
     button.classList.add("is-complete");
     button.classList.remove("is-failed");
@@ -1047,6 +1048,11 @@ async function applyApprovedReplacements(): Promise<void> {
   const addCitations = citationOptions.addMissing;
   const correctCitations = citationOptions.correctExisting;
   const citationOptionsEnabled = addCitations || correctCitations;
+  const convertVerses = byId<HTMLInputElement>("convertVerses").checked;
+  if (!convertVerses && !citationOptionsEnabled) {
+    toast("حدد عملية واحدة على الأقل قبل الاعتماد.");
+    return;
+  }
   type ApplyEntry = {
     item: ReviewItem;
     range?: WordRange;
@@ -1385,9 +1391,9 @@ async function applyApprovedReplacements(): Promise<void> {
       };
     });
 
-    const summaryParts = [
-      `تحويل ${approved.length.toLocaleString("ar")} موضعًا وضبط خط المصحف`
-    ];
+    const summaryParts: string[] = [];
+    if (convertVerses) summaryParts.push(`تحويل ${approved.length.toLocaleString("ar")} موضعًا وضبط خط المصحف`);
+    else summaryParts.push("لم يُعدّل نص الآيات أو خطها");
     if (!citationOptionsEnabled) {
       summaryParts.push("لم تُغيّر التخريجات");
     } else {
@@ -1419,8 +1425,12 @@ async function applyApprovedReplacements(): Promise<void> {
   }
 }
 Office.onReady(() => {
+  const convertVersesControl = byId<HTMLInputElement>("convertVerses");
   const addCitationsControl = byId<HTMLInputElement>("addCitations");
   const correctCitationsControl = byId<HTMLInputElement>("correctCitations");
+  for (const control of [convertVersesControl, addCitationsControl, correctCitationsControl]) {
+    control.addEventListener("change", () => { resetApplyFeedback(); updateApplyButton(); });
+  }
   addCitationsControl.addEventListener("change", () => {
     if (addCitationsControl.checked) correctCitationsControl.checked = false;
   });
