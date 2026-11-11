@@ -1,5 +1,6 @@
 import type { AyahReference, QuranIndex, QuranAyahRecord } from "../core/types.js";
 import { normalizeArabic } from "../core/normalizer.js";
+import { normalizeArabicDigits } from "../core/arabic-digits.js";
 
 export type QuranCitationReviewStatus =
   | "missing"
@@ -130,12 +131,8 @@ export function formatQuranCitation(references: readonly AyahReference[], index:
   return `[${citations.join("؛ ")}]`;
 }
 
-const DIGITS = "٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹";
-function asciiDigits(value: string): string {
-  return value.replace(/[٠-٩۰-۹]/gu, digit => String(DIGITS.indexOf(digit) % 10));
-}
 function normalizeCitation(value: string): string {
-  return normalizeArabic(asciiDigits(value))
+  return normalizeArabic(normalizeArabicDigits(value))
     .replace(/[\sـ]/gu, "")
     .replace(/[–—−]/gu, "-");
 }
@@ -204,10 +201,10 @@ function parseCitationContent(value: string, index: QuranIndex): ParsedCitation 
     if (!tokens.length) return { status: "ambiguous" };
 
     for (const token of tokens) {
-      const match = token.match(/^(\d{1,3}|[٠-٩۰-۹]{1,3})(?:\s*[-–—]\s*(\d{1,3}|[٠-٩۰-۹]{1,3}))?$/u);
+      const match = token.match(/^([0-9٠-٩۰-۹]{1,3})(?:\s*[-–—]\s*([0-9٠-٩۰-۹]{1,3}))?$/u);
       if (!match) return { status: "ambiguous" };
-      const first = Number(asciiDigits(match[1]!));
-      const last = Number(asciiDigits(match[2] ?? match[1]!));
+      const first = Number(normalizeArabicDigits(match[1]!));
+      const last = Number(normalizeArabicDigits(match[2] ?? match[1]!));
       if (!Number.isInteger(first) || !Number.isInteger(last) ||
           first < 1 || last < first || last - first > 286) {
         return { status: "invalid" };
@@ -287,7 +284,7 @@ export function inspectAdjacentQuranCitation(
 
   // A plain bracketed number is commonly a footnote, not a Quran citation.
   if (!citationLike) {
-    const plainFootnote = /^\s*\d+\s*$/u.test(asciiDigits(content));
+    const plainFootnote = /^\s*\d+\s*$/u.test(normalizeArabicDigits(content));
     if (!plainFootnote && /[\p{L}]/u.test(content)) {
       return {
         status: "ambiguous",

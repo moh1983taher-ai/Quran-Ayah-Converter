@@ -13,7 +13,7 @@ function indexFor(references: AyahReference[]): QuranIndex {
     const record: QuranAyahRecord = {
       ...reference,
       id: `${reference.surah}:${reference.ayah}`,
-      surahNameArabic: reference.surah === 4 ? "النساء" : "يوسف",
+      surahNameArabic: reference.surah === 4 ? "النساء" : reference.surah === 17 ? "الإسراء" : "يوسف",
       uthmani: "نص",
       imlaei: "نص"
     };
@@ -75,6 +75,40 @@ describe("adjacent Quran citation review", () => {
     expect(result.status).toBe("correct");
     expect(result.existingCitation).toBe("[النساء: ٣٠]");
     expect(result.separator).toBe("  ");
+  });
+
+  it("treats mixed Arabic and Latin digits as one citation number", () => {
+    const ayahRefs = [{ surah: 17, ayah: 32 }];
+    const expectedCitation = "[الإسراء: 32]";
+    const mixedIndex = indexFor([...ayahRefs, { surah: 17, ayah: 34 }]);
+
+    const correct = inspectAdjacentQuranCitation(
+      verse + " [الإسراء: ٣2]",
+      verse.length,
+      expectedCitation,
+      ayahRefs,
+      mixedIndex
+    );
+    expect(correct.status).toBe("correct");
+
+    const source = verse + "، [الإسراء: ٣4]";
+    const detected = inspectAdjacentQuranCitation(
+      source, verse.length, expectedCitation, ayahRefs, mixedIndex
+    );
+    expect(detected.status).toBe("incorrect");
+    expect(source.slice(detected.start, detected.end)).toBe("[الإسراء: ٣4]");
+
+    const approved = verifyAndComposeQuranCitationReplacement(
+      verse,
+      source,
+      verse.length,
+      expectedCitation,
+      ayahRefs,
+      mixedIndex,
+      { addMissing: false, correctExisting: true }
+    );
+    expect(approved.review.status).toBe("incorrect");
+    expect(approved.replacementText).toBe(verse + "، [الإسراء: 32]");
   });
 
   it("classifies a known wrong citation and captures its exact range", () => {
