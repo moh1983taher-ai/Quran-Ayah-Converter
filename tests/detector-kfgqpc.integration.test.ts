@@ -24,16 +24,27 @@ describe("QuranAyahDetector with real KFGQPC Hafs v18 records", () => {
     const sourceTokens = tokenizeArabic(quote).map(token => token.value);
     const imlaeiTokens = tokenizeArabic(verse.imlaei).map(token => token.value);
     const uthmaniTokens = tokenizeArabic(verse.uthmani).map(token => token.value);
+    const matches = local.detect(text);
+    const internal = local as unknown as {
+      prepared: (record: QuranAyahRecord) => { imlaeiTokens: Array<{ value: string }>; uthmaniTokens: Array<{ value: string }> };
+      matchPassage: (value: string, records: readonly QuranAyahRecord[], allowShort: boolean) => unknown[];
+      matchBracketedPassage: (value: string, records: readonly QuranAyahRecord[], reference?: undefined) => unknown[];
+    };
+    const prepared = internal.prepared(verse);
     console.log("AN-NUR-24-33-DIAGNOSTICS", {
       sourceCount: sourceTokens.length,
       imlaeiCount: imlaeiTokens.length,
-      uthmaniCount: uthmaniTokens.length,
+      rawUthmaniCount: uthmaniTokens.length,
+      preparedImla eiCount: prepared.imlaeiTokens.length,
+      preparedUthmaniCount: prepared.uthmaniTokens.length,
       source: sourceTokens,
       imlaei: imlaeiTokens,
-      uthmani: uthmaniTokens,
+      preparedUthmani: prepared.uthmaniTokens.map(token => token.value),
+      directPassage: internal.matchPassage(quote, [verse], true),
+      bracketPassage: internal.matchBracketedPassage(quote, [verse]),
+      matches,
       diagnostics: local.getDiagnostics()
     });
-    const matches = local.detect(text);
     expect(matches).toHaveLength(1);
     expect(matches[0]?.references).toEqual([{ surah: 24, ayah: 33 }]);
     expect(matches[0]?.sourceStart).toBe(text.indexOf("﴿"));
