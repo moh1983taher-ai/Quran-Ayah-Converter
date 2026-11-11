@@ -478,7 +478,8 @@ describe("QuranAyahDetector", () => {
     const repeatedDetector = new QuranAyahDetector(new InMemoryQuranIndex(records));
     const matches = repeatedDetector.detect("﴿" + common + "﴾ [البقرة: ٥]");
     expect(matches.every(match => match.status === "ambiguous")).toBe(true);
-    expect(matches.some(match => match.references.some(ref => ref.surah === 24 && ref.ayah === 5))).toBe(false);
+    expect(matches[0]?.references).toEqual([{ surah: 3, ayah: 89 }, { surah: 24, ayah: 5 }]);
+    expect(matches[0]?.canonicalText).toBe("");
   });
 
   it("exposes cumulative stage diagnostics without changing detection results", () => {
