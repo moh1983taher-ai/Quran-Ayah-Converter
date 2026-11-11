@@ -1125,7 +1125,6 @@ async function applyApprovedReplacements(): Promise<void> {
   const applyMetricsRef = applyMetrics;
   const citationReviewByItem = new Map<string, QuranCitationReview>();
 
-  const applyMetrics = applyMetricsRef;
   const applyResolvedEntries = async (
     context: WordContext,
     entries: ResolvedApplyEntry[],
