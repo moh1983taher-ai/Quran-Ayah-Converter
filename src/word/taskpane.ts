@@ -146,8 +146,7 @@ interface ApplyDiagnostics {
   citationValidationMs: number;
   mutationMs: number;
   approvedCount: number;
-  reusedRangeCount: number;
-  fallbackRangeCount: number;
+  resolvedRangeCount: number;
   citationCorrectionCount: number;
 }
 
@@ -155,7 +154,7 @@ function renderApplyDiagnostics(metrics: ApplyDiagnostics): void {
   const root = byId<HTMLElement>("applyDiagnostics");
   const values: Array<[string, number]> = [
     ["تحميل بيانات التخريج", metrics.datasetMs],
-    ["التحقق من مواضع الآيات وإعادة استخدام النطاقات المثبتة", metrics.validationMs],
+    ["التحقق وإعادة تثبيت مواضع الآيات داخل Word", metrics.validationMs],
     ["تثبيت نطاقات التخريجات المصححة", metrics.citationValidationMs],
     ["تنفيذ الاستبدال داخل Word", metrics.mutationMs]
   ];
@@ -173,7 +172,7 @@ function renderApplyDiagnostics(metrics: ApplyDiagnostics): void {
   }
   byId("applyDiagnosticsTotal").textContent = formatElapsed(metrics.totalMs);
   byId("applyDiagnosticsSummary").textContent =
-    `${metrics.approvedCount.toLocaleString("ar")} وحدة معتمدة · ${metrics.reusedRangeCount.toLocaleString("ar")} نطاقًا أُعيد استخدامه · ${metrics.fallbackRangeCount.toLocaleString("ar")} نطاقًا احتاج إعادة تثبيت · ${metrics.citationCorrectionCount.toLocaleString("ar")} تخريجًا احتاج تصحيحًا`;
+    `${metrics.approvedCount.toLocaleString("ar")} وحدة معتمدة · ${metrics.resolvedRangeCount.toLocaleString("ar")} نطاقًا أُعيد تثبيت موضعه والتحقق منه · ${metrics.citationCorrectionCount.toLocaleString("ar")} تخريجًا احتاج تصحيحًا`;
   root.hidden = false;
 }
 
@@ -1117,20 +1116,16 @@ async function applyApprovedReplacements(): Promise<void> {
     citationValidationMs: 0,
     mutationMs: 0,
     approvedCount: approved.length,
-    reusedRangeCount: 0,
-    fallbackRangeCount: 0,
+    resolvedRangeCount: 0,
     citationCorrectionCount: 0
   };
-  // Shared by the nested apply executor and surfaced in the post-apply report.
-  const applyMetricsRef = applyMetrics;
   const citationReviewByItem = new Map<string, QuranCitationReview>();
 
   const applyResolvedEntries = async (
     context: WordContext,
     entries: ResolvedApplyEntry[],
     citationByItem: Map<string, string | undefined>,
-    quranIndex: ReturnType<typeof loadQuranDatasetJson>["index"] | undefined,
-    additionalTrackedRanges: WordRange[] = []
+    quranIndex: ReturnType<typeof loadQuranDatasetJson>["index"] | undefined
   ): Promise<void> => {
     const ordered = [...entries].sort((a, b) =>
       a.paragraphIndex - b.paragraphIndex || b.start - a.start
@@ -1178,60 +1173,58 @@ async function applyApprovedReplacements(): Promise<void> {
     const citationPlans = plans.filter(({ plan }) => plan.citationEdit.kind === "replace");
     const citationValidationStarted = performance.now();
     if (citationPlans.length) {
-      // Keep Office.js request payloads bounded. Large documents can contain
-      // hundreds of citations; one giant paragraph/search request is fragile.
-      const officeBatchSize = 30;
-      for (let offset = 0; offset < citationPlans.length; offset += officeBatchSize) {
-        const batch = citationPlans.slice(offset, offset + officeBatchSize);
-        const paragraphCollections = batch.map(({ entry }) =>
-          entry.range.paragraphs.load("items")
-        );
-        await context.sync();
+      // Resolve all parent paragraphs in one Word round-trip.
+      const parentParagraphs = citationPlans.map(({ entry }) =>
+        entry.range.paragraphs.load("items")
+      );
+      await context.sync();
 
-        const searches: Array<{
-          itemId: string;
-          matches: WordCollection<WordRange>;
-          text: string;
-          replacementText: string;
-        }> = [];
-        batch.forEach(({ entry, review, plan }, index) => {
-          if (plan.citationEdit.kind !== "replace") return;
-          if (!review?.existingCitation) {
-            throw new Error("تعذر تثبيت التخريج الخاطئ وحده؛ أعد فحص النص قبل الاعتماد.");
-          }
-          const paragraphRange = paragraphCollections[index]!.items[0]?.getRange("Content");
-          if (!paragraphRange) throw new Error("تعذر الوصول إلى الفقرة لتصحيح التخريج.");
-          searches.push({
-            itemId: entry.item.id,
-            matches: paragraphRange.search(review.existingCitation, {
-              matchCase: true,
-              matchWholeWord: false
-            }).load("items"),
-            text: review.existingCitation,
-            replacementText: plan.citationEdit.text
-          });
+      // Queue all citation searches together, then verify their exact text.
+      const pendingSearches: Array<{
+        itemId: string;
+        matches: WordCollection<WordRange>;
+        expectedText: string;
+        replacementText: string;
+      }> = [];
+      citationPlans.forEach(({ entry, review, plan }, index) => {
+        if (plan.citationEdit.kind !== "replace") return;
+        if (!review?.existingCitation) {
+          throw new Error("تعذر تثبيت التخريج الخاطئ وحده؛ أعد فحص النص قبل الاعتماد.");
+        }
+        const paragraphRange = parentParagraphs[index]!.items[0]?.getRange("Content");
+        if (!paragraphRange) throw new Error("تعذر الوصول إلى الفقرة لتصحيح التخريج.");
+        pendingSearches.push({
+          itemId: entry.item.id,
+          matches: paragraphRange.search(review.existingCitation, {
+            matchCase: true,
+            matchWholeWord: false
+          }).load("items"),
+          expectedText: review.existingCitation,
+          replacementText: plan.citationEdit.text
         });
-        if (searches.length) await context.sync();
+      });
+      if (pendingSearches.length) await context.sync();
 
-        for (const search of searches) {
-          for (const match of search.matches.items) match.load("text");
-        }
-        if (searches.length) await context.sync();
+      for (const search of pendingSearches) {
+        for (const match of search.matches.items) match.load("text");
+      }
+      if (pendingSearches.some(search => search.matches.items.length > 0)) {
+        await context.sync();
+      }
 
-        for (const search of searches) {
-          if (search.matches.items.length !== 1 ||
-              search.matches.items[0]!.text !== search.text) {
-            throw new Error("التخريج المكرر أو المتغير لا يمكن تثبيت موضعه بأمان؛ لم يُجرَ أي تعديل.");
-          }
-          citationRanges.push({
-            itemId: search.itemId,
-            range: search.matches.items[0]!,
-            text: search.replacementText
-          });
+      for (const search of pendingSearches) {
+        if (search.matches.items.length !== 1 ||
+            search.matches.items[0]!.text !== search.expectedText) {
+          throw new Error("التخريج المكرر أو المتغير لا يمكن تثبيت موضعه بأمان؛ لم يُجرَ أي تعديل.");
         }
+        citationRanges.push({
+          itemId: search.itemId,
+          range: search.matches.items[0]!,
+          text: search.replacementText
+        });
       }
     }
-    applyMetrics.citationValidationMs = performance.now() - citationValidationStarted;
+    applyMetrics.citationValidationMs += performance.now() - citationValidationStarted;
 
     setApplyProgress(4, "تنفيذ العمليات المحددة",
       `تحويل ${plans.filter(p => p.plan.convertVerse).length.toLocaleString("ar")} آية · تصحيح ${citationRanges.length.toLocaleString("ar")} تخريج · إضافة ${plans.filter(p => p.plan.citationEdit.kind === "insert").length.toLocaleString("ar")} تخريج`);
@@ -1241,43 +1234,31 @@ async function applyApprovedReplacements(): Promise<void> {
     // Track independent citation ranges before edits so Word keeps their
     // positions stable when other citations/verses in the same paragraph move.
     for (const operation of citationRanges) context.trackedObjects.add(operation.range);
-    // Apply bounded batches. Tracked Word ranges preserve their locations
-    // across the preceding citation edits, while each sync stays small.
-    const mutationBatchSize = 30;
-    for (let offset = 0; offset < plans.length; offset += mutationBatchSize) {
-      const batch = plans.slice(offset, offset + mutationBatchSize);
-      for (const { entry, plan } of batch) {
-        if (plan.citationEdit.kind === "insert") {
-          entry.range.insertText(
-            plan.citationEdit.separator + plan.citationEdit.text,
-            "After"
-          );
-        }
+    // Citation-only operations target their own ranges. Insertions are made
+    // after the verse range; corrections replace only the citation range.
+    for (const { entry, plan } of plans) {
+      if (plan.citationEdit.kind === "insert") {
+        entry.range.insertText(
+          plan.citationEdit.separator + plan.citationEdit.text,
+          "After"
+        );
       }
-      const batchIds = new Set(batch.map(({ entry }) => entry.item.id));
-      for (const operation of citationRanges) {
-        if (batchIds.has(operation.itemId)) operation.range.insertText(operation.text, "Replace");
-      }
-      if (batch.some(({ plan }) => plan.citationEdit.kind !== "none")) {
-        await context.sync();
-      }
+    }
+    for (const operation of citationRanges) {
+      operation.range.insertText(operation.text, "Replace");
     }
     // Verse conversion is deliberately last and touches only the verse range.
-    for (let offset = 0; offset < plans.length; offset += mutationBatchSize) {
-      const batch = plans.slice(offset, offset + mutationBatchSize);
-      for (const { entry, plan } of batch) {
-        if (!plan.convertVerse) continue;
-        const inserted = entry.range.insertText(
-          ensureOrnamentalVerseBrackets(entry.item.replacementText),
-          "Replace"
-        );
-        inserted.font.name = "KFGQPC HAFS Uthmanic Script";
-      }
-      if (batch.some(({ plan }) => plan.convertVerse)) await context.sync();
+    for (const { entry, plan } of plans) {
+      if (!plan.convertVerse) continue;
+      const inserted = entry.range.insertText(
+        ensureOrnamentalVerseBrackets(entry.item.replacementText),
+        "Replace"
+      );
+      inserted.font.name = "KFGQPC HAFS Uthmanic Script";
     }
+    await context.sync();
     for (const entry of entries) context.trackedObjects.remove(entry.range);
     for (const operation of citationRanges) context.trackedObjects.remove(operation.range);
-    for (const range of additionalTrackedRanges) context.trackedObjects.remove(range);
     await context.sync();
     applyMetrics.mutationMs += performance.now() - mutationStarted;
   };
@@ -1318,16 +1299,13 @@ async function applyApprovedReplacements(): Promise<void> {
         throw new Error("تعذر تثبيت نطاق إحدى فقرات النص المحدد. أعد فحص النص قبل الاستبدال.");
       }
 
-      setApplyProgress(2, "التحقق من النص المحدد", "إعادة استخدام النطاقات المثبتة ومقارنة النص المحدد بلقطة الفحص");
+      const selectedValidationStarted = performance.now();
+      setApplyProgress(2, "التحقق من النص المحدد", "التأكد من أن النص المحدد لم يتغير منذ الفحص");
       await yieldToUi();
 
       const selectedScopes = [...new Set(entries.map(entry => entry.scopeRange!))];
-      const storedRanges = entries.flatMap(entry => entry.range ? [entry.range] : []);
-      const contextObjects = [...new Set([...selectedScopes, ...storedRanges])];
-      const runSelectedApply = async (context: WordContext): Promise<void> => {
-        const validationStarted = performance.now();
+      await Word.run(selectedScopes, async context => {
         for (const scope of selectedScopes) scope.load("text");
-        for (const entry of entries) entry.range?.load("text");
         await context.sync();
 
         for (const entry of entries) {
@@ -1336,195 +1314,126 @@ async function applyApprovedReplacements(): Promise<void> {
           }
         }
 
-        const resolvedRanges: Array<WordRange | undefined> = new Array(entries.length);
-        const fallback: Array<{
-          entryIndex: number;
-          searchScope: WordRange;
-          snapshot: string;
-          start: number;
-          end: number;
-        }> = [];
-        entries.forEach((entry, index) => {
-          if (entry.range) {
-            if (normalizeForWordRange(entry.range.text) !== normalizeForWordRange(entry.expectedText)) {
-              throw new Error("تغير نطاق إحدى الآيات بعد الفحص؛ أُلغي الاستبدال حمايةً للمستند.");
-            }
-            resolvedRanges[index] = entry.range;
-            applyMetrics.reusedRangeCount += 1;
-          } else {
-            fallback.push({
-              entryIndex: index,
-              searchScope: entry.scopeRange!,
-              snapshot: entry.scopeSnapshot!,
-              start: entry.start,
-              end: entry.end
-            });
-          }
-        });
-
-        const fallbackRanges: WordRange[] = [];
-        const applyBatchSize = 60;
-        const totalBatches = Math.ceil(fallback.length / applyBatchSize);
-        for (let offset = 0; offset < fallback.length; offset += applyBatchSize) {
-          const batch = fallback.slice(offset, offset + applyBatchSize);
-          setApplyProgress(
-            2,
-            "تثبيت مواضع غير المثبتة",
-            `إعادة تثبيت ${Math.min(offset + batch.length, fallback.length).toLocaleString("ar")} من ${fallback.length.toLocaleString("ar")} نطاق`
-          );
-          await yieldToUi();
-          const results = await resolveReviewedRangesBatch(context, batch);
-          results.forEach((result, index) => {
-            const request = batch[index]!;
-            if (result.range) {
-              resolvedRanges[request.entryIndex] = result.range;
-              fallbackRanges.push(result.range);
-            }
-          });
-          const failedIndex = results.findIndex(result => !result.range);
-          if (failedIndex >= 0) {
-            for (const range of fallbackRanges) context.trackedObjects.remove(range);
-            if (fallbackRanges.length) await context.sync();
-            throw new Error(
-              results[failedIndex]!.error ??
-              "تعذر إعادة تحديد أحد مواضع النص المحدد؛ لم يُعدّل المستند."
-            );
-          }
-        }
-
-        applyMetrics.fallbackRangeCount += fallback.length;
-        if (resolvedRanges.some(range => !range)) {
-          for (const range of fallbackRanges) context.trackedObjects.remove(range);
-          if (fallbackRanges.length) await context.sync();
-          throw new Error("تعذر تثبيت أحد نطاقات النص المحدد؛ لم يُجرَ أي تعديل.");
-        }
-
-        const resolvedEntries: ResolvedApplyEntry[] = entries.map((entry, index) => ({
-          ...entry,
-          range: resolvedRanges[index]!,
-          paragraphText: entry.scopeSnapshot!
+        const requests = entries.map(entry => ({
+          searchScope: entry.scopeRange!,
+          snapshot: entry.scopeSnapshot!,
+          start: entry.start,
+          end: entry.end
         }));
-        applyMetrics.validationMs += performance.now() - validationStarted;
-        await applyResolvedEntries(
-          context, resolvedEntries, citationByItem, quranIndex, selectedScopes
-        );
-      };
+        const resolvedRanges: WordRange[] = [];
+        let replacementsApplied = false;
+        try {
+          const applyBatchSize = 60;
+          const totalBatches = Math.ceil(requests.length / applyBatchSize);
+          for (let offset = 0; offset < requests.length; offset += applyBatchSize) {
+            const batch = requests.slice(offset, offset + applyBatchSize);
+            setApplyProgress(
+              2,
+              "تثبيت مواضع الآيات",
+              `الدفعة ${Math.floor(offset / applyBatchSize + 1).toLocaleString("ar")} من ${totalBatches.toLocaleString("ar")} · تم التحقق من ${offset.toLocaleString("ar")} من ${requests.length.toLocaleString("ar")}`
+            );
+            await yieldToUi();
+            const results = await resolveReviewedRangesBatch(context, batch);
+            const failedIndex = results.findIndex(result => !result.range);
+            resolvedRanges.push(...results.flatMap(result => result.range ? [result.range] : []));
+            if (failedIndex >= 0) {
+              throw new Error(
+                results[failedIndex]!.error ??
+                "تعذر إعادة تحديد أحد مواضع النص المحدد؛ لم يُعدّل المستند."
+              );
+            }
+          }
 
-      if (contextObjects.length) {
-        await Word.run(contextObjects, runSelectedApply);
-      } else {
-        await Word.run(runSelectedApply);
-      }
+          const resolvedEntries: ResolvedApplyEntry[] = entries.map((entry, index) => ({
+            ...entry,
+            range: resolvedRanges[index]!,
+            paragraphText: entry.scopeSnapshot!
+          }));
+          applyMetrics.validationMs += performance.now() - selectedValidationStarted;
+          applyMetrics.resolvedRangeCount += resolvedEntries.length;
+          await applyResolvedEntries(context, resolvedEntries, citationByItem, quranIndex);
+          replacementsApplied = true;
+
+          for (const entry of entries) {
+            if (entry.range) context.trackedObjects.remove(entry.range);
+          }
+          for (const scope of selectedScopes) context.trackedObjects.remove(scope);
+          await context.sync();
+        } catch (error) {
+          if (!replacementsApplied && resolvedRanges.length) {
+            for (const range of resolvedRanges) {
+              try { context.trackedObjects.remove(range); } catch { /* already released */ }
+            }
+            await context.sync();
+          }
+          throw error;
+        }
+      });
     } else {
-      setApplyProgress(2, "التحقق من المستند", "إعادة استخدام النطاقات المثبتة ومقارنة مواضع النص بلقطة الفحص");
+      const documentValidationStarted = performance.now();
+      setApplyProgress(2, "التحقق من المستند", "مقارنة النص الحالي بالنص الذي فُحص وتثبيت مواضع الاستبدال");
       await yieldToUi();
 
-      const storedRanges = entries.flatMap(entry => entry.range ? [entry.range] : []);
-      const runDocumentApply = async (context: WordContext): Promise<void> => {
-        const validationStarted = performance.now();
+      await Word.run(async context => {
         const paragraphs = context.document.body.paragraphs.load("items");
-        for (const entry of entries) entry.range?.load("text");
         await context.sync();
 
-        const paragraphTextRanges = new Map<number, WordRange>();
-        const paragraphSearchScopes = new Map<number, WordRange>();
-        for (const paragraphIndex of new Set(entries.map(entry => entry.paragraphIndex))) {
-          const paragraph = paragraphs.items[paragraphIndex];
+        const currentRanges = entries.map(entry => {
+          const paragraph = paragraphs.items[entry.paragraphIndex];
           if (!paragraph) throw new Error("لم تعد الفقرة الأصلية موجودة؛ أُلغي الاستبدال.");
-          const paragraphRange = paragraph.getRange("Content");
-          paragraphTextRanges.set(paragraphIndex, paragraphRange.load("text"));
-          paragraphSearchScopes.set(paragraphIndex, paragraph.getRange("Content"));
-        }
-        if (paragraphTextRanges.size) await context.sync();
+          return paragraph.getRange("Content").load("text");
+        });
+        await context.sync();
 
-        const paragraphTexts = new Map<number, string>();
-        for (const [paragraphIndex, range] of paragraphTextRanges) {
-          paragraphTexts.set(paragraphIndex, range.text);
-        }
-
-        const resolvedRanges: Array<WordRange | undefined> = new Array(entries.length);
-        const fallback: Array<{
-          entryIndex: number;
-          searchScope: WordRange;
-          snapshot: string;
-          start: number;
-          end: number;
-        }> = [];
-        entries.forEach((entry, index) => {
-          const currentText = paragraphTexts.get(entry.paragraphIndex);
-          if (currentText === undefined ||
-              currentText.slice(entry.start, entry.end) !== entry.expectedText) {
+        const rangeRequests = entries.map((entry, index) => {
+          const paragraph = paragraphs.items[entry.paragraphIndex]!;
+          const currentText = currentRanges[index]!.text;
+          if (currentText.slice(entry.start, entry.end) !== entry.expectedText) {
             throw new Error("تغير النص أو موضع إحدى الآيات بعد الفحص؛ أُلغي الاستبدال حمايةً للمستند.");
           }
-          if (entry.range) {
-            if (normalizeForWordRange(entry.range.text) !== normalizeForWordRange(entry.expectedText)) {
-              throw new Error("نطاق Word المثبت لا يطابق النص الذي تمت مراجعته؛ أُلغي الاستبدال.");
-            }
-            resolvedRanges[index] = entry.range;
-            applyMetrics.reusedRangeCount += 1;
-          } else {
-            fallback.push({
-              entryIndex: index,
-              searchScope: paragraphSearchScopes.get(entry.paragraphIndex)!,
-              snapshot: currentText,
-              start: entry.start,
-              end: entry.end
-            });
-          }
+          return {
+            searchScope: paragraph.getRange("Content"),
+            snapshot: currentText,
+            start: entry.start,
+            end: entry.end
+          };
         });
 
-        const fallbackRanges: WordRange[] = [];
+        const resolvedRanges: WordRange[] = [];
         const applyBatchSize = 60;
-        for (let offset = 0; offset < fallback.length; offset += applyBatchSize) {
-          const batch = fallback.slice(offset, offset + applyBatchSize);
-          setApplyProgress(
-            2,
-            "تثبيت مواضع غير المثبتة",
-            `إعادة تثبيت ${Math.min(offset + batch.length, fallback.length).toLocaleString("ar")} من ${fallback.length.toLocaleString("ar")} نطاق`
-          );
-          await yieldToUi();
-          const results = await resolveReviewedRangesBatch(context, batch);
-          results.forEach((result, index) => {
-            const request = batch[index]!;
-            if (result.range) {
-              resolvedRanges[request.entryIndex] = result.range;
-              fallbackRanges.push(result.range);
-            }
-          });
-          const failedIndex = results.findIndex(result => !result.range);
-          if (failedIndex >= 0) {
-            for (const range of fallbackRanges) context.trackedObjects.remove(range);
-            if (fallbackRanges.length) await context.sync();
-            throw new Error(
-              results[failedIndex]!.error ??
-              "تعذر إعادة تثبيت أحد مواضع الآيات؛ لم يُعدّل المستند."
+        const totalBatches = Math.ceil(rangeRequests.length / applyBatchSize);
+        try {
+          for (let offset = 0; offset < rangeRequests.length; offset += applyBatchSize) {
+            const batch = rangeRequests.slice(offset, offset + applyBatchSize);
+            setApplyProgress(
+              2,
+              "تثبيت مواضع الآيات",
+              `الدفعة ${Math.floor(offset / applyBatchSize + 1).toLocaleString("ar")} من ${totalBatches.toLocaleString("ar")} · تم التحقق من ${offset.toLocaleString("ar")} من ${rangeRequests.length.toLocaleString("ar")}`
             );
+            await yieldToUi();
+            const results = await resolveReviewedRangesBatch(context, batch);
+            const failed = results.find(result => !result.range);
+            if (failed) {
+              throw new Error(failed.error ?? "تعذر التحقق من أحد مواضع الآيات؛ لم يُعدّل المستند.");
+            }
+            resolvedRanges.push(...results.map(result => result.range!));
           }
-        }
-
-        applyMetrics.fallbackRangeCount += fallback.length;
-        if (resolvedRanges.some(range => !range)) {
-          for (const range of fallbackRanges) context.trackedObjects.remove(range);
-          if (fallbackRanges.length) await context.sync();
-          throw new Error("تعذر تثبيت أحد نطاقات الآيات؛ لم يُجرَ أي تعديل.");
+        } catch (error) {
+          for (const range of resolvedRanges) context.trackedObjects.remove(range);
+          if (resolvedRanges.length) await context.sync();
+          throw error;
         }
 
         const resolvedEntries: ResolvedApplyEntry[] = entries.map((entry, index) => ({
           ...entry,
           range: resolvedRanges[index]!,
-          paragraphText: paragraphTexts.get(entry.paragraphIndex)!
+          paragraphText: currentRanges[index]!.text
         }));
-        applyMetrics.validationMs += performance.now() - validationStarted;
+        applyMetrics.validationMs += performance.now() - documentValidationStarted;
+        applyMetrics.resolvedRangeCount += resolvedEntries.length;
         await applyResolvedEntries(context, resolvedEntries, citationByItem, quranIndex);
-      };
-
-      if (storedRanges.length) {
-        await Word.run(storedRanges, runDocumentApply);
-      } else {
-        await Word.run(runDocumentApply);
-      }
+      });
     }
-
 
     const reviewForEntry = (entry: ApplyEntry): QuranCitationReview | undefined =>
       citationReviewByItem.get(entry.item.id) ?? entry.item.citationReview;
@@ -1603,7 +1512,16 @@ async function applyApprovedReplacements(): Promise<void> {
     setStatus("اكتمل الاعتماد", applyFeedbackSummary, "اكتمل");
     toast(applyFeedbackSummary);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const baseMessage = error instanceof Error ? error.message : String(error);
+    const officeError = error as {
+      code?: string;
+      debugInfo?: { errorLocation?: string; statement?: string };
+    };
+    const officeDetails = [
+      officeError.code ? `رمز Office: ${officeError.code}` : "",
+      officeError.debugInfo?.errorLocation ? `الموضع: ${officeError.debugInfo.errorLocation}` : ""
+    ].filter(Boolean).join(" · ");
+    const message = officeDetails ? `${baseMessage} (${officeDetails})` : baseMessage;
     applyFeedbackError = message;
     applyFeedbackState = "failed";
     applyMetrics.totalMs = performance.now() - applyStartedAt;
