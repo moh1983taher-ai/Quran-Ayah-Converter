@@ -44,7 +44,7 @@ describe("QuranAyahDetector with real KFGQPC Hafs v18 records", () => {
     const text = "ومن ألفاظ القرآن: من الجنة والناس.";
     const match = detector.detect(text).find(item => item.references.some(ref => ref.surah === 114 && ref.ayah === 6));
     expect(match).toBeDefined();
-    expect(match?.canonicalText).toBe(kfgqpcHafsSamples[4]?.uthmani);
+    expect(match?.canonicalText).toBe(kfgqpcHafsSamples.find(record => record.surah === 114 && record.ayah === 6)?.uthmani);
   });
   it("detects Al-Baqarah 2:90 despite Uthmani small-letter and diacritic differences", () => {
     const verse: QuranAyahRecord = {
