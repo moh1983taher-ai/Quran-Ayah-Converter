@@ -58,6 +58,16 @@ interface PassageMatch {
   replacementText?: string;
 }
 
+/**
+ * Waqf signs are pause annotations, not part of the quoted word itself.
+ * KFGQPC can place different pause signs after the same excerpt in adjacent
+ * ayahs (for example ۚ versus ۗ). Excluding only these trailing annotations
+ * keeps identical lexical excerpts identical without stripping harakat.
+ */
+function stripTrailingWaqfSigns(value: string): string {
+  return value.replace(/[ۖ-ۜ]+$/u, "");
+}
+
 function normalizeReferenceDigits(value: string): string {
   return [...value].map(character => {
     const code = character.codePointAt(0)!;
@@ -754,7 +764,7 @@ export class QuranAyahDetector {
             const canonicalToken = window[tokenIndex]!.uthmani;
             const canonicalRecord = window[tokenIndex]!.record;
             replacementText = replacementText.slice(0, sourceToken.start) +
-              canonicalRecord.uthmani.slice(canonicalToken.start, canonicalToken.end) +
+              stripTrailingWaqfSigns(canonicalRecord.uthmani.slice(canonicalToken.start, canonicalToken.end)) +
               replacementText.slice(sourceToken.end);
           }
 
@@ -884,7 +894,7 @@ export class QuranAyahDetector {
                   record,
                   start: sourceTokens[0]!.start,
                   end: sourceTokens[sourceTokens.length - 1]!.end,
-                  replacementText: record.uthmani.slice(mapped.start, mapped.end)
+                  replacementText: stripTrailingWaqfSigns(record.uthmani.slice(mapped.start, mapped.end))
                 });
                 continue;
               }
@@ -928,10 +938,10 @@ export class QuranAyahDetector {
             record,
             start: sourceTokens[0]!.start,
             end: sourceTokens[sourceTokens.length - 1]!.end,
-            replacementText: record.uthmani.slice(
+            replacementText: stripTrailingWaqfSigns(record.uthmani.slice(
               uthmaniSlice[0]!.start,
               uthmaniSlice[uthmaniSlice.length - 1]!.end
-            )
+            ))
           });
         }
 
@@ -1010,7 +1020,7 @@ export class QuranAyahDetector {
                     record,
                     sourceStart: sourceTokens[0]!.start,
                     sourceEnd: sourceTokens[sourceTokens.length - 1]!.end,
-                    replacementText: record.uthmani.slice(first.start, last.end)
+                    replacementText: stripTrailingWaqfSigns(record.uthmani.slice(first.start, last.end))
                   });
                 }
               }

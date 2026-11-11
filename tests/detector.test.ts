@@ -4,6 +4,7 @@ import { QuranAyahDetector } from "../src/core/detector.js";
 import { InMemoryQuranIndex } from "../src/core/quran-index.js";
 import type { QuranAyahRecord } from "../src/core/types.js";
 import { normalizeArabic } from "../src/core/normalizer.js";
+import { createReviewItems } from "../src/word/review-workflow.js";
 
 const records: QuranAyahRecord[] = [
   {
@@ -317,6 +318,44 @@ describe("QuranAyahDetector", () => {
     expect(normalizeArabic(match!.replacementText ?? "")).toBe(
       normalizeArabic("هُوَ الَّذِي أَنزَلَ مِنَ السَّمَاءِ مَاءً لَّكُم مِّنْهُ شَرَابٌ")
     );
+  });
+
+  it("keeps a short excerpt repeated in adjacent ayahs as the exact excerpt despite differing waqf signs", () => {
+    const womenVerses: QuranAyahRecord[] = [
+      {
+        id: "4:22",
+        surah: 4,
+        ayah: 22,
+        surahNameArabic: "النساء",
+        uthmani: "وَلَا تَنكِحُواْ مَا نَكَحَ ءَابَآؤُكُم مِّنَ ٱلنِّسَاءِ إِلَّا مَا قَدۡ سَلَفَۚ إِنَّهُۥ كَانَ فَٰحِشَةٗ وَمَقۡتٗا وَسَآءَ سَبِيلًا ٢٢",
+        imlaei: "ولا تنكحوا ما نكح اباؤكم من النساء الا ما قد سلف انه كان فاحشة ومقتا وساء سبيلا"
+      },
+      {
+        id: "4:23",
+        surah: 4,
+        ayah: 23,
+        surahNameArabic: "النساء",
+        uthmani: "حُرِّمَتۡ عَلَيۡكُمۡ أُمَّهَٰتُكُمۡ وَبَنَاتُكُمۡ وَأَخَوَٰتُكُمۡ وَعَمَّٰتُكُمۡ وَخَٰلَٰتُكُمۡ وَبَنَاتُ ٱلۡأَخِ وَبَنَاتُ ٱلۡأُخۡتِ وَأُمَّهَٰتُكُمُ ٱلَّٰتِيٓ أَرۡضَعۡنَكُمۡ وَأَخَوَٰتُكُم مِّنَ ٱلرَّضَاعَةِ وَأُمَّهَٰتُ نِسَآئِكُمۡ وَرَبَٰٓئِبُكُمُ ٱلَّٰتِي فِي حُجُورِكُم مِّن نِّسَآئِكُمُ ٱلَّٰتِي دَخَلۡتُم بِهِنَّ فَإِن لَّمۡ تَكُونُواْ دَخَلۡتُم بِهِنَّ فَلَا جُنَاحَ عَلَيۡكُمۡ وَحَلَٰٓئِلُ أَبۡنَآئِكُمُ ٱلَّذِينَ مِنۡ أَصۡلَٰبِكُمۡ وَأَن تَجْمَعُواْ بَيۡنَ ٱلۡأُخۡتَيۡنِ إِلَّا مَا قَدۡ سَلَفَۗ إِنَّ ٱللَّهَ كَانَ غَفُورٗا رَّحِيمٗا ٢٣",
+        imlaei: "حرمت عليكم امهاتكم وبناتكم واخواتكم وعماتكم وخالاتكم وبنات الاخ وبنات الاخت وامهاتكم اللاتي ارضعنكم واخواتكم من الرضاعة وامهات نسائكم وربائبكم اللاتي في حجوركم من نسائكم اللاتي دخلتم بهن فان لم تكونوا دخلتم بهن فلا جناح عليكم وحلائل ابنائكم الذين من اصلابكم وان تجمعوا بين الاختين الا ما قد سلف ان الله كان غفورا رحيما"
+      }
+    ];
+    const repeatedDetector = new QuranAyahDetector(new InMemoryQuranIndex(womenVerses));
+    const quote = "إِلَّا مَا قَدْ سَلَف";
+    const text = `قال تعالى ﴿${quote}﴾`;
+    const matches = repeatedDetector.detect(text);
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.references).toEqual([
+      { surah: 4, ayah: 22 },
+      { surah: 4, ayah: 23 }
+    ]);
+    expect(matches[0]?.status).toBe("high-confidence");
+    expect(normalizeArabic(matches[0]?.replacementText ?? "")).toBe(normalizeArabic("إِلَّا مَا قَدْ سَلَف"));
+    expect(matches[0]?.replacementText).not.toContain("ۚ");
+    expect(matches[0]?.replacementText).not.toContain("ۗ");
+    const [card] = createReviewItems(text, matches);
+    expect(card?.originalText).toBe(`﴿${quote}﴾`);
+    expect(normalizeArabic(card?.replacementText ?? "")).toBe(normalizeArabic("إِلَّا مَا قَدْ سَلَف"));
   });
 
   it("does not guess the identity of a repeated short bracketed excerpt", () => {
