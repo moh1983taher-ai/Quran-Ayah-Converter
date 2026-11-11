@@ -35,7 +35,7 @@ describe("QuranAyahDetector with real KFGQPC Hafs v18 records", () => {
       preparedUthmaniCount: prepared.uthmaniTokens.length,
       source: sourceTokens,
       imlaei: imlaeiTokens,
-      preparedUthmani: prepared.uthmaniTokens.map(token => token.value),
+      preparedUthmani: prepared.uthmaniTokens.map((token: { value: string }) => token.value),
       directPassage: internal.matchPassage(quote, [verse], true),
       bracketPassage: internal.matchBracketedPassage(quote, [verse]),
       matches,
