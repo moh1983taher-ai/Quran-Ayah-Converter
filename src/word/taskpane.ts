@@ -3,7 +3,8 @@ import { normalizeArabic } from "../core/normalizer.js";
 import { loadQuranDatasetJson } from "../core/dataset-loader.js";
 import { createReviewItems, createScopedReviewItems, getReviewSelectionCounts, groupBracketedAyahMatches, setReviewDecision, type ReviewItem } from "./review-workflow.js";
 import { ensureOrnamentalVerseBrackets } from "./verse-format.js";
-import { composeQuranCitationReplacement, formatQuranCitation, inspectAdjacentQuranCitation, resolveQuranCitationOperationOptions, verifyAndComposeQuranCitationReplacement, type QuranCitationReview } from "./quran-citation.js";
+import { formatQuranCitation, inspectAdjacentQuranCitation, resolveQuranCitationOperationOptions, type QuranCitationReview } from "./quran-citation.js";
+import { createWordApplyPlan } from "./apply-plan.js";
 import { findLegacyBracketPairs, type MatchedBracketPair } from "./bracket-normalizer.js";
 
 
@@ -27,7 +28,7 @@ interface WordRange {
   load(property: string): WordRange;
   expandTo(range: WordRange): WordRange;
   intersectWithOrNullObject(range: WordRange): WordRange;
-  insertText(text: string, location: "Replace"): WordRange;
+  insertText(text: string, location: "Replace" | "After"): WordRange;
   search(query: string, options: { matchCase: boolean; matchWholeWord: boolean }): WordCollection<WordRange>;
 }
 interface WordParagraph { text: string; getRange(location?: "Content" | "Whole"): WordRange; }
@@ -48,9 +49,11 @@ interface StoredReviewedRange {
   paragraphIndex: number;
   start: number;
   end: number;
+  verseEnd: number;
   /** Offset immediately after the quoted verse and its closing delimiter, before any citation. */
   citationVerseEnd: number;
   expectedText: string;
+  citationExpectedText?: string;
 }
 const itemRanges = new Map<string, StoredReviewedRange>();
 let datasetPromise: Promise<ReturnType<typeof loadQuranDatasetJson>> | undefined;
@@ -210,13 +213,14 @@ function updateApplyButton(): void {
   selectNoneButton.disabled = count === 0;
   selectNoneButton.textContent = count ? `إلغاء التحديد (${count})` : "إلغاء التحديد";
   const button = byId<HTMLButtonElement>("applyButton");
+  const anyOperation = byId<HTMLInputElement>("convertVerses").checked || byId<HTMLInputElement>("addCitations").checked || byId<HTMLInputElement>("correctCitations").checked;
 
   if (applyFeedbackState === "running") {
     button.disabled = true;
     return;
   }
   if (applyFeedbackState === "completed") {
-    button.disabled = count === 0;
+    button.disabled = count === 0 || !anyOperation;
     button.removeAttribute("aria-busy");
     button.classList.add("is-complete");
     button.classList.remove("is-failed");
@@ -566,18 +570,14 @@ async function inspectDocument(): Promise<void> {
             paragraphText, citationVerseEnd, expectedCitation, item.references, loaded.index
           );
           item.citationReview = citationReview;
-          // A clearly incorrect adjacent citation is part of this review unit.
-          // The stored range then covers verse + separator + citation, so a
-          // single guarded Word replacement repairs both without duplication.
-          if (citationReview.status === "incorrect" && citationReview.end !== undefined) {
-            end = citationReview.end;
-          }
           const stored: StoredReviewedRange = {
             paragraphIndex: index,
             start,
-            end,
+            end: citationVerseEnd,
+            verseEnd: citationVerseEnd,
             citationVerseEnd,
-            expectedText: paragraphText.slice(start, end)
+            expectedText: paragraphText.slice(start, citationVerseEnd),
+            ...(citationReview.existingCitation ? { citationExpectedText: citationReview.existingCitation } : {})
           };
           itemRanges.set(item.id, stored);
           pendingRangeRequests.push({ item, stored, paragraph, snapshot: paragraphText });
@@ -782,18 +782,17 @@ async function inspectSelectedText(): Promise<void> {
             { start: 0, end: segment.text.length }
           );
           item.citationReview = citationReview;
-          if (citationReview.status === "incorrect" && citationReview.end !== undefined) {
-            end = citationReview.end;
-          }
           const stored: StoredReviewedRange = {
             scope: "selection",
             scopeSnapshot: segment.text,
             scopeRange: segment.range,
             paragraphIndex: segment.paragraphIndex,
             start,
-            end,
+            end: citationVerseEnd,
+            verseEnd: citationVerseEnd,
             citationVerseEnd,
-            expectedText: segment.text.slice(start, end)
+            expectedText: segment.text.slice(start, citationVerseEnd),
+            ...(citationReview.existingCitation ? { citationExpectedText: citationReview.existingCitation } : {})
           };
           itemRanges.set(item.id, stored);
           pending.push({
@@ -1049,6 +1048,11 @@ async function applyApprovedReplacements(): Promise<void> {
   const addCitations = citationOptions.addMissing;
   const correctCitations = citationOptions.correctExisting;
   const citationOptionsEnabled = addCitations || correctCitations;
+  const convertVerses = byId<HTMLInputElement>("convertVerses").checked;
+  if (!convertVerses && !citationOptionsEnabled) {
+    toast("حدد عملية واحدة على الأقل قبل الاعتماد.");
+    return;
+  }
   type ApplyEntry = {
     item: ReviewItem;
     range?: WordRange;
@@ -1058,8 +1062,10 @@ async function applyApprovedReplacements(): Promise<void> {
     paragraphIndex: number;
     start: number;
     end: number;
+    verseEnd: number;
     citationVerseEnd: number;
     expectedText: string;
+    citationExpectedText?: string;
   };
   type ResolvedApplyEntry = ApplyEntry & { range: WordRange; paragraphText: string };
 
@@ -1080,73 +1086,99 @@ async function applyApprovedReplacements(): Promise<void> {
       const previous = ordered[i - 1]!;
       const current = ordered[i]!;
       if (previous.paragraphIndex === current.paragraphIndex &&
-          current.end > previous.start) {
+          current.verseEnd > previous.start) {
         throw new Error("تداخل نطاقا آيتين معتمدتين؛ أُلغي التنفيذ حمايةً للمستند.");
       }
     }
 
-    setApplyProgress(
-      3,
-      citationOptionsEnabled ? "التحقق من التخريجات وتجهيز التصحيح" : "تجهيز التحويل",
-      citationOptionsEnabled
-        ? correctCitations
-          ? `إعادة فحص ${ordered.length.toLocaleString("ar")} تخريجًا معتمدًا؛ تصحيح الخاطئ فقط دون إضافة تخريجات جديدة`
-          : `إعادة فحص ${ordered.length.toLocaleString("ar")} موضعًا؛ إضافة التخريجات المفقودة فقط`
-        : `إعداد النص البديل لـ ${ordered.length.toLocaleString("ar")} موضعًا وفق الخيارات المحددة`
-    );
-    await yieldToUi();
-
-    const replacements = ordered.map(entry => {
-      const finalVerseText = ensureOrnamentalVerseBrackets(entry.item.replacementText);
+    const convertVerses = byId<HTMLInputElement>("convertVerses").checked;
+    const plans = ordered.map(entry => {
       const expectedCitation = citationByItem.get(entry.item.id);
-      if (citationOptionsEnabled && quranIndex) {
-        const verified = verifyAndComposeQuranCitationReplacement(
-          finalVerseText,
-          entry.paragraphText,
-          entry.citationVerseEnd,
-          expectedCitation,
-          entry.item.references,
-          quranIndex,
-          { addMissing: addCitations, correctExisting: correctCitations },
-          entry.scope === "selection"
-            ? { start: 0, end: entry.paragraphText.length }
-            : undefined
-        );
-        // A citation that appeared or changed outside the range captured by the
-        // scan must not be silently omitted from Word replacement. Require a
-        // fresh scan so the entire citation can be guarded and replaced safely.
-        if (verified.review.status === "incorrect" &&
-            verified.review.end !== undefined &&
-            verified.review.end > entry.end) {
-          throw new Error("تغيّر التخريج بعد الفحص أو ظهر خارج نطاق الاستبدال المثبّت؛ أعد فحص النص ثم اعتمد النتائج حمايةً للمستند.");
-        }
-        citationReviewByItem.set(entry.item.id, verified.review);
-        return { entry, replacement: verified.replacementText };
-      }
-      return {
-        entry,
-        replacement: composeQuranCitationReplacement(
-          finalVerseText,
-          entry.item.citationReview,
-          expectedCitation,
-          { addMissing: addCitations, correctExisting: correctCitations }
-        )
-      };
+      const review = quranIndex
+        ? inspectAdjacentQuranCitation(
+            entry.paragraphText,
+            entry.citationVerseEnd,
+            expectedCitation,
+            entry.item.references,
+            quranIndex,
+            entry.scope === "selection"
+              ? { start: 0, end: entry.paragraphText.length }
+              : undefined
+          )
+        : entry.item.citationReview;
+      if (review) citationReviewByItem.set(entry.item.id, review);
+      const plan = createWordApplyPlan({
+        convertVerse: convertVerses,
+        addMissingCitation: addCitations,
+        correctExistingCitation: correctCitations,
+        review,
+        expectedCitation
+      });
+      return { entry, review, plan };
     });
 
-    setApplyProgress(
-      4,
-      "تطبيق الآيات وضبط الخط",
-      `استبدال ${replacements.length.toLocaleString("ar")} موضعًا وضبط خط المصحف العثماني في Word`
-    );
+    setApplyProgress(3, "التحقق من نطاقات التنفيذ",
+      `إعادة التحقق من ${plans.length.toLocaleString("ar")} وحدة وفصل نطاق الآية عن نطاق التخريج`);
     await yieldToUi();
 
-    for (const { entry, replacement } of replacements) {
-      const inserted = entry.range.insertText(replacement, "Replace");
+    const citationRanges: Array<{ itemId: string; range: WordRange; text: string }> = [];
+    for (const { entry, review, plan } of plans) {
+      if (plan.citationEdit.kind !== "replace") continue;
+      if (!review?.existingCitation) {
+        throw new Error("تعذر تثبيت التخريج الخاطئ وحده؛ أعد فحص النص قبل الاعتماد.");
+      }
+      const paragraph = entry.range.paragraphs;
+      paragraph.load("items");
+      await context.sync();
+      const paragraphRange = paragraph.items[0]?.getRange("Content");
+      if (!paragraphRange) throw new Error("تعذر الوصول إلى الفقرة لتصحيح التخريج.");
+      const matches = paragraphRange.search(review.existingCitation, {
+        matchCase: true,
+        matchWholeWord: false
+      }).load("items");
+      await context.sync();
+      if (matches.items.length !== 1 || matches.items[0]!.text !== review.existingCitation) {
+        throw new Error("التخريج المكرر أو المتغير لا يمكن تثبيت موضعه بأمان؛ لم يُجرَ أي تعديل.");
+      }
+      citationRanges.push({
+        itemId: entry.item.id,
+        range: matches.items[0]!,
+        text: plan.citationEdit.text
+      });
+    }
+
+    setApplyProgress(4, "تنفيذ العمليات المحددة",
+      `تحويل ${plans.filter(p => p.plan.convertVerse).length.toLocaleString("ar")} آية · تصحيح ${citationRanges.length.toLocaleString("ar")} تخريج · إضافة ${plans.filter(p => p.plan.citationEdit.kind === "insert").length.toLocaleString("ar")} تخريج`);
+    await yieldToUi();
+
+    // Track independent citation ranges before edits so Word keeps their
+    // positions stable when other citations/verses in the same paragraph move.
+    for (const operation of citationRanges) context.trackedObjects.add(operation.range);
+    // Citation-only operations target their own ranges. Insertions are made
+    // after the verse range; corrections replace only the citation range.
+    for (const { entry, plan } of plans) {
+      if (plan.citationEdit.kind === "insert") {
+        entry.range.insertText(
+          plan.citationEdit.separator + plan.citationEdit.text,
+          "After"
+        );
+      }
+    }
+    for (const operation of citationRanges) {
+      operation.range.insertText(operation.text, "Replace");
+    }
+    // Verse conversion is deliberately last and touches only the verse range.
+    for (const { entry, plan } of plans) {
+      if (!plan.convertVerse) continue;
+      const inserted = entry.range.insertText(
+        ensureOrnamentalVerseBrackets(entry.item.replacementText),
+        "Replace"
+      );
       inserted.font.name = "KFGQPC HAFS Uthmanic Script";
     }
     await context.sync();
     for (const entry of entries) context.trackedObjects.remove(entry.range);
+    for (const operation of citationRanges) context.trackedObjects.remove(operation.range);
     await context.sync();
   };
 
@@ -1364,9 +1396,9 @@ async function applyApprovedReplacements(): Promise<void> {
       };
     });
 
-    const summaryParts = [
-      `تحويل ${approved.length.toLocaleString("ar")} موضعًا وضبط خط المصحف`
-    ];
+    const summaryParts: string[] = [];
+    if (convertVerses) summaryParts.push(`تحويل ${approved.length.toLocaleString("ar")} موضعًا وضبط خط المصحف`);
+    else summaryParts.push("لم يُعدّل نص الآيات أو خطها");
     if (!citationOptionsEnabled) {
       summaryParts.push("لم تُغيّر التخريجات");
     } else {
@@ -1398,8 +1430,12 @@ async function applyApprovedReplacements(): Promise<void> {
   }
 }
 Office.onReady(() => {
+  const convertVersesControl = byId<HTMLInputElement>("convertVerses");
   const addCitationsControl = byId<HTMLInputElement>("addCitations");
   const correctCitationsControl = byId<HTMLInputElement>("correctCitations");
+  for (const control of [convertVersesControl, addCitationsControl, correctCitationsControl]) {
+    control.addEventListener("change", () => { resetApplyFeedback(); updateApplyButton(); });
+  }
   addCitationsControl.addEventListener("change", () => {
     if (addCitationsControl.checked) correctCitationsControl.checked = false;
   });
