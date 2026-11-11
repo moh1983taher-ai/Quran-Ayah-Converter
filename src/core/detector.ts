@@ -1020,7 +1020,7 @@ export class QuranAyahDetector {
           const evidence: MatchEvidence[] = [{
             type: "exact-text",
             detail: surfaceResolved
-              ? "حُسمت الصيغة العثمانية من علامات المقتطف نفسه؛ استُبعدت المواضع ذات الضبط المختلف"
+              ? "مقتطف مكرر بالرسم العثماني نفسه في المواضع المطابقة حرفيًا؛ استُبعدت المواضع ذات الضبط المختلف"
               : repeatedExactExcerpt
                 ? "مقتطف مكرر بالرسم العثماني نفسه في مواضع قرآنية متعددة"
                 : uniqueRecords.length > 1
