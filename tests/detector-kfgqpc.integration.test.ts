@@ -8,6 +8,25 @@ import type { QuranAyahRecord } from "../src/core/types.js";
 describe("QuranAyahDetector with real KFGQPC Hafs v18 records", () => {
   const detector = new QuranAyahDetector(new InMemoryQuranIndex(kfgqpcHafsSamples));
 
+  it("detects An-Nur 24:33 without relying on an explicit citation", () => {
+    const verse: QuranAyahRecord = {
+      id: "2824",
+      surah: 24,
+      ayah: 33,
+      surahNameArabic: "النور",
+      uthmani: "وَلۡيَسۡتَعۡفِفِ ٱلَّذِينَ لَا يَجِدُونَ نِكَاحًا حَتَّىٰ يُغۡنِيَهُمُ ٱللَّهُ مِن فَضۡلِهِۦۗ وَٱلَّذِينَ يَبۡتَغُونَ ٱلۡكِتَٰبَ مِمَّا مَلَكَتۡ أَيۡمَٰنُكُمۡ فَكَاتِبُوهُمۡ إِنۡ عَلِمۡتُمۡ فِيهِمۡ خَيۡرٗاۖ وَءَاتُوهُم مِّن مَّالِ ٱللَّهِ ٱلَّذِيٓ ءَاتَىٰكُمۡۚ وَلَا تُكۡرِهُواْ فَتَيَٰتِكُمۡ عَلَى ٱلۡبِغَآءِ إِنۡ أَرَدۡنَ تَحَصُّنٗا لِّتَبۡتَغُواْ عَرَضَ ٱلۡحَيَوٰةِ ٱلدُّنۡيَاۚ وَمَن يُكۡرِههُّنَّ فَإِنَّ ٱللَّهَ مِنۢ بَعۡدِ إِكْرَٰهِهِنَّ غَفُورٞ رَّحِيمٞ ٣٣",
+      imlaei: "وليستعفف الذين لا يجدون نكاحا حتى يغنيهم الله من فضله والذين يبتغون الكتاب مما ملكت أيمانكم فكاتبوهم إن علمتم فيهم خيرا وآتوهم من مال الله الذي آتاكم ولا تكرهوا فتياتكم على البغاء إن أردن تحصنا لتبتغوا عرض الحياة الدنيا ومن يكرهن فإن الله من بعد إكراههن غفور رحيم"
+    };
+    const local = new QuranAyahDetector(new InMemoryQuranIndex([verse]));
+    const quote = "وَلْيَسْتَعْفِفِ الَّذِينَ لَا يَجِدُونَ نِكَاحًا حَتَّىٰ يُغْنِيَهُمُ اللَّهُ مِنْ فَضْلِهِ ۗ وَالَّذِينَ يَبْتَغُونَ الْكِتَابَ مِمَّا مَلَكَتْ أَيْمَانُكُمْ فَكَاتِبُوهُمْ إِنْ عَلِمْتُمْ فِيهِمْ خَيْرًا ۖ وَآتُوهُمْ مِنْ مَالِ اللَّهِ الَّذِي آتَاكُمْ ۚ وَلَا تُكْرِهُوا فَتَيَاتِكُمْ عَلَى الْبِغَاءِ إِنْ أَرَدْنَ تَحَصُّنًا لِتَبْتَغُوا عَرَضَ الْحَيَاةِ الدُّنْيَا ۚ وَمَنْ يُكْرِهْهُنَّ فَإِنَّ اللَّهَ مِنْ بَعْدِ إِكْرَاهِهِنَّ غَفُورٌ رَحِيمٌ";
+    const text = `قال تعالى ﴿${quote}﴾`;
+    const matches = local.detect(text);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.references).toEqual([{ surah: 24, ayah: 33 }]);
+    expect(matches[0]?.sourceStart).toBe(text.indexOf("﴿"));
+    expect(matches[0]?.sourceEnd).toBe(text.indexOf("﴾") + 1);
+  });
+
   it("detects a fully vocalized Qur'an-bracketed passage and maps the exact source range", () => {
     const quote = "بسم الله الرحمن الرحيم";
     const text = `قال تعالى ﴿${quote}﴾ ثم تابع الباحث كلامه.`;
