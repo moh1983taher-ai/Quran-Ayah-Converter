@@ -319,7 +319,7 @@ describe("QuranAyahDetector", () => {
     );
   });
 
-  it("keeps a short repeated excerpt in adjacent ayahs ambiguous instead of expanding it to both full ayahs", () => {
+  it("keeps a short excerpt repeated in adjacent ayahs as the exact excerpt despite differing waqf signs", () => {
     const womenVerses: QuranAyahRecord[] = [
       {
         id: "4:22",
@@ -348,9 +348,10 @@ describe("QuranAyahDetector", () => {
       { surah: 4, ayah: 22 },
       { surah: 4, ayah: 23 }
     ]);
-    expect(matches[0]?.status).toBe("ambiguous");
-    expect(matches[0]?.replacementText).toBeUndefined();
-    expect(matches[0]?.canonicalText).toBe("");
+    expect(matches[0]?.status).toBe("high-confidence");
+    expect(normalizeArabic(matches[0]?.replacementText ?? "")).toBe(normalizeArabic("إِلَّا مَا قَدْ سَلَف"));
+    expect(matches[0]?.replacementText).not.toContain("ۚ");
+    expect(matches[0]?.replacementText).not.toContain("ۗ");
   });
 
   it("does not guess the identity of a repeated short bracketed excerpt", () => {
