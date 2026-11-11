@@ -78,7 +78,7 @@ function stripTrailingWaqfSigns(value: string): string {
 }
 
 function normalizeWhitespace(value: string): string {
-  return value.trim().replace(/\\s+/gu, " ");
+  return value.trim().replace(/\s+/gu, " ");
 }
 
 /**
@@ -95,7 +95,7 @@ function normalizeUthmaniSurface(value: string): string {
   for (const character of value.normalize("NFKC")) {
     if (
       character === "\u0640" ||
-      /\\p{Cf}/u.test(character) ||
+      /\p{Cf}/u.test(character) ||
       /[ۖ-ۜ]/u.test(character)
     ) continue;
 
@@ -104,7 +104,7 @@ function normalizeUthmaniSurface(value: string): string {
       continue;
     }
 
-    if (/\\p{M}/u.test(character)) {
+    if (/\p{M}/u.test(character)) {
       if (character === "ّ") result += character;
       continue;
     }
@@ -128,7 +128,7 @@ function normalizeUthmaniSurface(value: string): string {
       "ى": "ي"
     } as Record<string, string>)[character] ?? character;
   }
-  return result.trim().replace(/\\s+/gu, " ");
+  return result.trim().replace(/\s+/gu, " ");
 }
 
 function normalizeReferenceDigits(value: string): string {
