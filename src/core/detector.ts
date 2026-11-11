@@ -65,7 +65,7 @@ interface PassageMatch {
  * keeps identical lexical excerpts identical without stripping harakat.
  */
 function stripTrailingWaqfSigns(value: string): string {
-  return value.replace(/[\\u06D6-\\u06DC]+$/u, "");
+  return value.replace(/[ۖ-ۜ]+$/u, "");
 }
 
 function normalizeReferenceDigits(value: string): string {
