@@ -77,6 +77,10 @@ function stripTrailingWaqfSigns(value: string): string {
   return value.replace(/[ۖ-ۜ]+$/u, "");
 }
 
+function normalizeWhitespace(value: string): string {
+  return value.trim().replace(/\\s+/gu, " ");
+}
+
 function normalizeReferenceDigits(value: string): string {
   return [...value].map(character => {
     const code = character.codePointAt(0)!;
@@ -988,35 +992,51 @@ export class QuranAyahDetector {
           // one ayah. Common words should not flood the review panel.
           if (sourceValues.length === 1 && fragmentMatches.length !== 1) return [];
 
-          const uniqueRecords = [...new Map(
-            fragmentMatches.map(found => [found.record.id, found.record])
-          ).values()];
           const first = fragmentMatches[0]!;
-          // Repeated locations are safe to approve only when every location
-          // yields exactly the same Uthmani excerpt. Otherwise the actual
-          // spelling differs and the result must remain ambiguous for review.
-          const sameUthmaniExcerpt = fragmentMatches.every(
-            found => found.replacementText === first.replacementText
+          // If the quotation preserves Uthmani marks, use its literal surface
+          // as additional evidence: retain only locations whose exact canonical
+          // excerpt is written the same way. Normalized text alone must not
+          // erase a real mark-level distinction.
+          const sourceSurface = normalizeWhitespace(source.slice(first.start, first.end));
+          const exactSurfaceMatches = fragmentMatches.filter(found =>
+            normalizeWhitespace(found.replacementText) === sourceSurface
+          );
+          const selectedFragmentMatches = exactSurfaceMatches.length > 0
+            ? exactSurfaceMatches
+            : fragmentMatches;
+          const uniqueRecords = [...new Map(
+            selectedFragmentMatches.map(found => [found.record.id, found.record])
+          ).values()];
+          const selectedFirst = selectedFragmentMatches[0]!;
+          // Every retained location must yield one identical canonical excerpt.
+          // Otherwise a short excerpt remains unresolved until a citation
+          // identifies the intended location.
+          const sameUthmaniExcerpt = selectedFragmentMatches.every(
+            found => found.replacementText === selectedFirst.replacementText
           );
           const repeatedExactExcerpt = uniqueRecords.length > 1 && sameUthmaniExcerpt;
+          const surfaceResolved = exactSurfaceMatches.length > 0 &&
+            exactSurfaceMatches.length < fragmentMatches.length;
           const evidence: MatchEvidence[] = [{
             type: "exact-text",
-            detail: repeatedExactExcerpt
-              ? "مقتطف مكرر بالرسم العثماني نفسه في مواضع قرآنية متعددة"
-              : uniqueRecords.length > 1
-                ? "مقطع قرآني وارد في أكثر من موضع بصيغ عثمانية مختلفة؛ يلزم التحقق"
-                : "مقطع متصل مطابق لألفاظ آية قرآنية داخل الأقواس"
+            detail: surfaceResolved
+              ? "حُسمت الصيغة العثمانية من علامات المقتطف نفسه؛ استُبعدت المواضع ذات الضبط المختلف"
+              : repeatedExactExcerpt
+                ? "مقتطف مكرر بالرسم العثماني نفسه في مواضع قرآنية متعددة"
+                : uniqueRecords.length > 1
+                  ? "مقطع قرآني وارد في أكثر من موضع بصيغ عثمانية مختلفة؛ يلزم التحقق"
+                  : "مقطع متصل مطابق لألفاظ آية قرآنية داخل الأقواس"
           }];
 
-          // Keep every verified reference. A repeated identical excerpt has
-          // one shared replacement text; differing Uthmani forms stay textless
-          // and therefore cannot be approved automatically.
+          // Keep all verified locations separately so an explicit adjacent
+          // citation can still override surface-based narrowing. Without a
+          // citation, only exact surface-compatible locations are returned.
           return [{
-            start: first.start,
-            end: first.end,
+            start: selectedFirst.start,
+            end: selectedFirst.end,
             records: uniqueRecords,
             ...(sameUthmaniExcerpt
-              ? { replacementText: first.replacementText }
+              ? { replacementText: selectedFirst.replacementText }
               : {}),
             referenceCandidates: fragmentMatches.map(({ record, start, end, replacementText }) => ({
               record,
