@@ -49,6 +49,13 @@ interface ExplicitReference {
   raw: string;
 }
 
+interface PassageReferenceCandidate {
+  record: QuranAyahRecord;
+  start: number;
+  end: number;
+  replacementText: string;
+}
+
 interface PassageMatch {
   start: number;
   end: number;
@@ -56,6 +63,8 @@ interface PassageMatch {
   evidence: MatchEvidence[];
   confidence: number;
   replacementText?: string;
+  /** Per-location canonical excerpts retained until an adjacent citation resolves identity. */
+  referenceCandidates?: PassageReferenceCandidate[];
 }
 
 /**
@@ -817,19 +826,48 @@ export class QuranAyahDetector {
     explicitReference?: ExplicitReference
   ): PassageMatch[] {
     if (!explicitReference) return matches;
-    const referenced = matches.filter(match =>
-      matchesExplicitReferenceRange(match.records, explicitReference)
-    );
-    if (referenced.length === 1) {
-      const selected = referenced[0]!;
-      return [{
-        ...selected,
-        evidence: [...selected.evidence, {
+
+    const referenced: PassageMatch[] = [];
+    for (const match of matches) {
+      if (matchesExplicitReferenceRange(match.records, explicitReference)) {
+        referenced.push({
+          ...match,
+          evidence: [...match.evidence, {
+            type: "explicit-reference",
+            detail: explicitReference.raw
+          }]
+        });
+        continue;
+      }
+
+      // A complete ayah can occur at several locations with slightly different
+      // Uthmani marks. Keep each exact location and its own canonical excerpt
+      // until the adjacent reference is available; then select that one record
+      // before ambiguity is calculated and before the review item is built.
+      if (explicitReference.ayahEnd !== explicitReference.ayah) continue;
+      const matchingLocations = match.referenceCandidates?.filter(candidate =>
+        candidate.record.surah === explicitReference.surah &&
+        candidate.record.ayah === explicitReference.ayah
+      ) ?? [];
+      if (matchingLocations.length !== 1) continue;
+
+      const selected = matchingLocations[0]!;
+      referenced.push({
+        ...match,
+        start: selected.start,
+        end: selected.end,
+        records: [selected.record],
+        replacementText: selected.replacementText,
+        evidence: [...match.evidence, {
           type: "explicit-reference",
           detail: explicitReference.raw
         }]
-      }];
+      });
     }
+
+    if (referenced.length === 1) return referenced;
+    // A missing, conflicting, or non-unique citation must not force a choice.
+    // Preserve the original unresolved result when there is one candidate span.
     return matches.length === 1 ? matches : [];
   }
 
@@ -980,6 +1018,12 @@ export class QuranAyahDetector {
             ...(sameUthmaniExcerpt
               ? { replacementText: first.replacementText }
               : {}),
+            referenceCandidates: fragmentMatches.map(({ record, start, end, replacementText }) => ({
+              record,
+              start,
+              end,
+              replacementText
+            })),
             evidence,
             confidence: 0.99
           }];
