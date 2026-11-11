@@ -45,6 +45,7 @@ interface ExplicitReference {
   end: number;
   surah: number;
   ayah: number;
+  ayahEnd: number;
   raw: string;
 }
 
@@ -55,6 +56,28 @@ interface PassageMatch {
   evidence: MatchEvidence[];
   confidence: number;
   replacementText?: string;
+}
+
+function normalizeReferenceDigits(value: string): string {
+  return [...value].map(character => {
+    const code = character.codePointAt(0)!;
+    if (code >= 0x0660 && code <= 0x0669) return String(code - 0x0660);
+    if (code >= 0x06f0 && code <= 0x06f9) return String(code - 0x06f0);
+    return character;
+  }).join("");
+}
+
+function matchesExplicitReferenceRange(
+  records: readonly QuranAyahRecord[],
+  reference: ExplicitReference
+): boolean {
+  const expectedCount = reference.ayahEnd - reference.ayah + 1;
+  return expectedCount > 0 &&
+    records.length === expectedCount &&
+    records.every((record, index) =>
+      record.surah === reference.surah &&
+      record.ayah === reference.ayah + index
+    );
 }
 
 function countTokenValues(values: readonly string[]): ReadonlyMap<string, number> {
@@ -255,6 +278,7 @@ export class QuranAyahDetector {
     // First: explicit verse references (e.g. البقرة: 255).
     const references = this.findExplicitReferences(text);
     for (const reference of references) {
+      if (reference.ayahEnd !== reference.ayah) continue;
       const record = this.index.get({
         surah: reference.surah,
         ayah: reference.ayah
@@ -306,8 +330,14 @@ export class QuranAyahDetector {
         // Mask them with spaces (same UTF-16 length) so a full quoted ayah
         // remains one continuous matching unit and source offsets stay stable.
         const content = maskBracketMarkers(rawContent);
+        const passageReference = this.findAdjacentExplicitReference(
+          text,
+          start,
+          endMarker + close.length,
+          references
+        );
         const bracketStartedAt = performance.now();
-        const matches = this.matchBracketedPassage(content, records);
+        const matches = this.matchBracketedPassage(content, records, passageReference);
         this.diagnostics.bracketPassageMs += performance.now() - bracketStartedAt;
         this.diagnostics.bracketPassageCalls += 1;
         for (const match of matches) {
@@ -502,10 +532,13 @@ export class QuranAyahDetector {
    */
   private matchBracketedPassage(
     content: string,
-    records: readonly QuranAyahRecord[]
+    records: readonly QuranAyahRecord[],
+    explicitReference?: ExplicitReference
   ): PassageMatch[] {
     const boundaries = [...content.matchAll(/(?:\s*(?:\*|[،؛,:])\s*)+/gu)];
-    if (!boundaries.length) return this.matchPassage(content, records, true);
+    if (!boundaries.length) {
+      return this.selectPassageMatches(this.matchPassage(content, records, true), explicitReference);
+    }
 
     const segments: Array<{ start: number; end: number }> = [];
     let cursor = 0;
@@ -515,17 +548,24 @@ export class QuranAyahDetector {
       cursor = start + boundary[0].length;
     }
     if (cursor < content.length) segments.push({ start: cursor, end: content.length });
-    if (segments.length < 2) return this.matchPassage(content, records, true);
+    if (segments.length < 2) {
+      return this.selectPassageMatches(this.matchPassage(content, records, true), explicitReference);
+    }
 
+    const referenceCoversSegments = explicitReference !== undefined &&
+      explicitReference.ayahEnd - explicitReference.ayah + 1 === segments.length;
     const segmentOptions: Array<Array<{
       start: number; end: number; record: QuranAyahRecord;
       replacementText: string; confidence: number; evidence: MatchEvidence[];
     }>> = [];
+
     for (const segment of segments) {
       const raw = content.slice(segment.start, segment.end);
       const leading = raw.length - raw.trimStart().length;
       const text = raw.trim();
-      if (!text) return this.matchBracketedPassageByTokenSequence(content, records);
+      if (!text) {
+        return this.matchBracketedPassageByTokenSequence(content, records, explicitReference);
+      }
 
       // Keep printed verse markers in the source while excluding them from
       // textual matching. A repeated short phrase can be disambiguated by
@@ -534,11 +574,24 @@ export class QuranAyahDetector {
       const searchableText = trailingMarker
         ? text.slice(0, trailingMarker.index).trimEnd()
         : text;
-      if (!searchableText) return this.matchBracketedPassageByTokenSequence(content, records);
+      if (!searchableText) {
+        return this.matchBracketedPassageByTokenSequence(content, records, explicitReference);
+      }
 
       const found = this.matchPassage(searchableText, records, true);
-      if (found.length !== 1) return this.matchBracketedPassageByTokenSequence(content, records);
-      const item = found[0]!;
+      const segmentIndex = segmentOptions.length;
+      const compatible = referenceCoversSegments
+        ? found.filter(item =>
+            item.records.length === 1 &&
+            item.records[0]!.surah === explicitReference.surah &&
+            item.records[0]!.ayah === explicitReference.ayah + segmentIndex
+          )
+        : found;
+      if (compatible.length !== 1) {
+        return this.matchBracketedPassageByTokenSequence(content, records, explicitReference);
+      }
+
+      const item = compatible[0]!;
       const options = item.records.map(record => ({
         start: segment.start + leading + item.start,
         end: segment.start + leading + item.end,
@@ -547,7 +600,9 @@ export class QuranAyahDetector {
         confidence: item.confidence,
         evidence: item.evidence
       }));
-      if (options.length === 0) return this.matchBracketedPassageByTokenSequence(content, records);
+      if (options.length === 0) {
+        return this.matchBracketedPassageByTokenSequence(content, records, explicitReference);
+      }
       segmentOptions.push(options);
     }
 
@@ -561,9 +616,19 @@ export class QuranAyahDetector {
         )
       )
     );
-    // Multiple valid sequences remain ambiguous and must not be guessed.
-    if (sequences.length !== 1) return this.matchBracketedPassageByTokenSequence(content, records);
-    const first = sequences[0]!.record;
+    const referenceSequences = referenceCoversSegments
+      ? sequences.filter(first =>
+          first.record.surah === explicitReference.surah &&
+          first.record.ayah === explicitReference.ayah
+        )
+      : sequences;
+
+    // A matching adjacent citation may select one exact consecutive sequence.
+    // Without that corroboration, repeated sequences remain unresolved.
+    if (referenceSequences.length !== 1) {
+      return this.matchBracketedPassageByTokenSequence(content, records, explicitReference);
+    }
+    const first = referenceSequences[0]!.record;
     const resolved = segmentOptions.map((options, index) =>
       options.find(option =>
         option.record.surah === first.surah &&
@@ -576,16 +641,22 @@ export class QuranAyahDetector {
       replacementText = replacementText.slice(0, item.start) +
         item.replacementText + replacementText.slice(item.end);
     }
+    const resolvedRecords = resolved.map(item => item.record);
+    const referenceSupportsMatch = explicitReference !== undefined &&
+      matchesExplicitReferenceRange(resolvedRecords, explicitReference);
     return [{
       start: 0,
       end: content.length,
-      records: resolved.map(item => item.record),
+      records: resolvedRecords,
       replacementText,
       confidence: Math.min(...resolved.map(item => item.confidence)),
       evidence: resolved.flatMap(item => item.evidence).concat([{
         type: "context",
         detail: "مقطع واحد يضم آيات متتابعة؛ حُفظت فواصل الآيات الأصلية"
-      }])
+      }], referenceSupportsMatch ? [{
+        type: "explicit-reference",
+        detail: explicitReference.raw
+      }] : [])
     }];
   }
 
@@ -598,7 +669,8 @@ export class QuranAyahDetector {
    */
   private matchBracketedPassageByTokenSequence(
     content: string,
-    records: readonly QuranAyahRecord[]
+    records: readonly QuranAyahRecord[],
+    explicitReference?: ExplicitReference
   ): PassageMatch[] {
     const sourceTokens = tokenizeArabic(content);
     if (sourceTokens.length === 0) return [];
@@ -683,8 +755,51 @@ export class QuranAyahDetector {
       }
     }
 
+    // A cited range may resolve repeated text only when every verse in the
+    // candidate sequence agrees with the cited surah and full ayah range.
+    const candidates = [...found.values()];
+    if (explicitReference) {
+      const referenced = candidates.filter(match =>
+        matchesExplicitReferenceRange(match.records, explicitReference)
+      );
+      if (referenced.length === 1) {
+        const selected = referenced[0]!;
+        return [{
+          ...selected,
+          evidence: [...selected.evidence, {
+            type: "explicit-reference",
+            detail: explicitReference.raw
+          }]
+        }];
+      }
+      // A unique textual location remains usable on its own; a conflicting
+      // citation is never allowed to redirect it to another Qur'anic location.
+      return candidates.length === 1 ? candidates : [];
+    }
+
     // Repeated Qur'anic passages or multiple placements remain unresolved.
-    return found.size === 1 ? [found.values().next().value!] : [];
+    return candidates.length === 1 ? candidates : [];
+  }
+
+  private selectPassageMatches(
+    matches: PassageMatch[],
+    explicitReference?: ExplicitReference
+  ): PassageMatch[] {
+    if (!explicitReference) return matches;
+    const referenced = matches.filter(match =>
+      matchesExplicitReferenceRange(match.records, explicitReference)
+    );
+    if (referenced.length === 1) {
+      const selected = referenced[0]!;
+      return [{
+        ...selected,
+        evidence: [...selected.evidence, {
+          type: "explicit-reference",
+          detail: explicitReference.raw
+        }]
+      }];
+    }
+    return matches.length === 1 ? matches : [];
   }
 
   private matchPassage(
@@ -1004,37 +1119,91 @@ export class QuranAyahDetector {
   }
 
   private findExplicitReferences(text: string): ExplicitReference[] {
-    const results: ExplicitReference[] = [];
-    const normalizedNames = [...SURAH_ALIASES.entries()]
-      .sort((a, b) => b[0].length - a[0].length);
+    const results = new Map<string, ExplicitReference>();
+    const normalizedText = normalizeArabicWithMap(text);
+    const digit = "[0-9٠-٩۰-۹]";
+    const namedReferencePattern = new RegExp(
+      "^\\s*(?:[:：،,]\\s*)?(?:(?:ال)?آي(?:ة|ات)\\s*)?[:：،,]?\\s*(" +
+        digit + "{1,3})(?:\\s*[-‐‑‒–—−]\\s*(" + digit + "{1,3}))?(?!" + digit + ")",
+      "u"
+    );
 
-    for (const [normalizedName, surah] of normalizedNames) {
-      // Use a normalized view only for identifying the surah name. The
-      // following bounded local scan finds the original digits and offsets.
-      const nameOccurrences = findAll(text, normalizedName);
-      for (const nameStart of nameOccurrences) {
-        const tail = text.slice(nameStart + normalizedName.length, nameStart + normalizedName.length + 24);
-        const match = /^\s*[:：،,\-–]?\s*(\d{1,3})\b/u.exec(tail);
+    for (const [normalizedName, surah] of SURAH_ALIASES.entries()) {
+      for (const mappedName of findAllMappedRanges(text, normalizedName)) {
+        // Read after the original surah-name span, not after its normalized
+        // length, because diacritics and orthographic forms change UTF-16 offsets.
+        const tail = text.slice(mappedName.end, mappedName.end + 64);
+        const match = namedReferencePattern.exec(tail);
         if (!match) continue;
-        const ayah = Number(match[1]);
-        if (!Number.isInteger(ayah) || ayah < 1) continue;
-        const start = nameStart;
-        const end = nameStart + normalizedName.length + match[0].length;
-        results.push({ start, end, surah, ayah, raw: text.slice(start, end) });
+
+        const ayah = Number(normalizeReferenceDigits(match[1]!));
+        const ayahEnd = match[2]
+          ? Number(normalizeReferenceDigits(match[2]))
+          : ayah;
+        if (!Number.isInteger(ayah) || !Number.isInteger(ayahEnd) ||
+            ayah < 1 || ayahEnd < ayah) continue;
+
+        const end = mappedName.end + match[0].length;
+        const reference: ExplicitReference = {
+          start: mappedName.start,
+          end,
+          surah,
+          ayah,
+          ayahEnd,
+          raw: text.slice(mappedName.start, end)
+        };
+        results.set(reference.start + ":" + reference.end + ":" + surah + ":" + ayah + ":" + ayahEnd, reference);
       }
     }
 
-    // Numeric references such as (2:255) or [2/255].
-    const numeric = /(?:\(|\[|﴿)?\s*(\d{1,3})\s*[:/،]\s*(\d{1,3})\s*(?:\)|\]|﴾)?/gu;
+    // Numeric references such as (2:255), [2/255], and [23:5-7].
+    const numeric = new RegExp(
+      "(?:\\(|\\[|﴿)?\\s*(" + digit + "{1,3})\\s*[:/،]\\s*(" + digit +
+        "{1,3})(?:\\s*[-‐‑‒–—−]\\s*(" + digit + "{1,3}))?\\s*(?:\\)|\\]|﴾)?",
+      "gu"
+    );
     for (const match of text.matchAll(numeric)) {
-      const surah = Number(match[1]);
-      const ayah = Number(match[2]);
-      if (surah >= 1 && surah <= 114 && ayah >= 1) {
-        const start = match.index ?? 0;
-        results.push({ start, end: start + match[0].length, surah, ayah, raw: match[0] });
-      }
+      const surah = Number(normalizeReferenceDigits(match[1]!));
+      const ayah = Number(normalizeReferenceDigits(match[2]!));
+      const ayahEnd = match[3]
+        ? Number(normalizeReferenceDigits(match[3]))
+        : ayah;
+      if (surah < 1 || surah > 114 || ayah < 1 || ayahEnd < ayah) continue;
+      const start = match.index ?? 0;
+      const reference: ExplicitReference = {
+        start,
+        end: start + match[0].length,
+        surah,
+        ayah,
+        ayahEnd,
+        raw: match[0]
+      };
+      results.set(reference.start + ":" + reference.end + ":" + surah + ":" + ayah + ":" + ayahEnd, reference);
     }
-    return results;
+
+    return [...results.values()].sort((left, right) =>
+      left.start - right.start || left.end - right.end
+    );
+  }
+
+  private findAdjacentExplicitReference(
+    text: string,
+    bracketStart: number,
+    bracketEnd: number,
+    references: readonly ExplicitReference[]
+  ): ExplicitReference | undefined {
+    const adjacent = references.filter(reference => {
+      if (reference.start >= bracketEnd) {
+        const gap = text.slice(bracketEnd, reference.start);
+        return gap.length <= 40 && !/[\p{L}\p{N}]/u.test(gap);
+      }
+      if (reference.end <= bracketStart) {
+        const gap = text.slice(reference.end, bracketStart);
+        return gap.length <= 40 && !/[\p{L}\p{N}]/u.test(gap);
+      }
+      return false;
+    });
+    return adjacent.length === 1 ? adjacent[0] : undefined;
   }
 
   private findNearbyQuote(
@@ -1374,18 +1543,18 @@ function isArabicLetterOrDigit(value: string): boolean {
   return /[\p{L}\p{N}]/u.test(value);
 }
 
-function findAll(text: string, needle: string): number[] {
+function findAllMappedRanges(text: string, needle: string): Array<{ start: number; end: number }> {
   const normalized = normalizeArabicWithMap(text);
-  const positions: number[] = [];
+  const ranges: Array<{ start: number; end: number }> = [];
   let cursor = 0;
   while (cursor <= normalized.value.length - needle.length) {
     const found = normalized.value.indexOf(needle, cursor);
     if (found < 0) break;
     const mapped = mapNormalizedRange(normalized, found, found + needle.length);
-    if (mapped) positions.push(mapped.start);
+    if (mapped) ranges.push(mapped);
     cursor = found + 1;
   }
-  return positions;
+  return ranges;
 }
 
 function findCanonicalBefore(
