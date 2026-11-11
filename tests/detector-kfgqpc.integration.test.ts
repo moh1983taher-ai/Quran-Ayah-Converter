@@ -25,11 +25,7 @@ describe("QuranAyahDetector with real KFGQPC Hafs v18 records", () => {
     const imlaeiTokens = tokenizeArabic(verse.imlaei).map(token => token.value);
     const uthmaniTokens = tokenizeArabic(verse.uthmani).map(token => token.value);
     const matches = local.detect(text);
-    const internal = local as unknown as {
-      prepared: (record: QuranAyahRecord) => { imlaeiTokens: Array<{ value: string }>; uthmaniTokens: Array<{ value: string }> };
-      matchPassage: (value: string, records: readonly QuranAyahRecord[], allowShort: boolean) => unknown[];
-      matchBracketedPassage: (value: string, records: readonly QuranAyahRecord[], reference?: undefined) => unknown[];
-    };
+    const internal = local as any;
     const prepared = internal.prepared(verse);
     console.log("AN-NUR-24-33-DIAGNOSTICS", {
       sourceCount: sourceTokens.length,
