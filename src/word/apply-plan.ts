@@ -15,8 +15,8 @@ export interface WordApplyPlanInput {
   convertVerse: boolean;
   addMissingCitation: boolean;
   correctExistingCitation: boolean;
-  review?: QuranCitationReview;
-  expectedCitation?: string;
+  review?: QuranCitationReview | undefined;
+  expectedCitation?: string | undefined;
 }
 
 /**
