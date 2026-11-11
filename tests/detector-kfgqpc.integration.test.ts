@@ -35,7 +35,7 @@ describe("QuranAyahDetector with real KFGQPC Hafs v18 records", () => {
       sourceCount: sourceTokens.length,
       imlaeiCount: imlaeiTokens.length,
       rawUthmaniCount: uthmaniTokens.length,
-      preparedImla eiCount: prepared.imlaeiTokens.length,
+      preparedImlaieiCount: prepared.imlaeiTokens.length,
       preparedUthmaniCount: prepared.uthmaniTokens.length,
       source: sourceTokens,
       imlaei: imlaeiTokens,
