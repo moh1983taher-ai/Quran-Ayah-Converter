@@ -1151,6 +1151,9 @@ async function applyApprovedReplacements(): Promise<void> {
       `تحويل ${plans.filter(p => p.plan.convertVerse).length.toLocaleString("ar")} آية · تصحيح ${citationRanges.length.toLocaleString("ar")} تخريج · إضافة ${plans.filter(p => p.plan.citationEdit.kind === "insert").length.toLocaleString("ar")} تخريج`);
     await yieldToUi();
 
+    // Track independent citation ranges before edits so Word keeps their
+    // positions stable when other citations/verses in the same paragraph move.
+    for (const operation of citationRanges) context.trackedObjects.add(operation.range);
     // Citation-only operations target their own ranges. Insertions are made
     // after the verse range; corrections replace only the citation range.
     for (const { entry, plan } of plans) {
