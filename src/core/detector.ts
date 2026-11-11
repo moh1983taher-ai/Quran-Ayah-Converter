@@ -535,7 +535,7 @@ export class QuranAyahDetector {
     records: readonly QuranAyahRecord[],
     explicitReference?: ExplicitReference
   ): PassageMatch[] {
-    const boundaries = [...content.matchAll(/(?:\s*(?:\*|[،؛,:])\s*)+/gu)];
+    const boundaries = [...content.matchAll(/(?:\s*(?:\\?\*|[،؛,:])\s*)+/gu)];
     if (!boundaries.length) {
       return this.selectPassageMatches(this.matchPassage(content, records, true), explicitReference);
     }
@@ -1186,6 +1186,25 @@ export class QuranAyahDetector {
     );
   }
 
+  /**
+   * Word/HTML-pasted text can retain a numeric character reference for the
+   * whitespace between a quotation and its citation (for example, &#x20;).
+   * Treat only entities that decode to actual whitespace as spacing. Other
+   * entities remain lexical content and therefore cannot establish adjacency.
+   */
+  private isCitationAdjacencyGap(value: string): boolean {
+    const decodedWhitespace = value
+      .replace(/&#(?:x([0-9a-f]{1,6})|([0-9]{1,7}));/giu, (entity, hex: string | undefined, decimal: string | undefined) => {
+        const codePoint = hex ? Number.parseInt(hex, 16) : Number(decimal);
+        if (!Number.isInteger(codePoint) || codePoint < 0 || codePoint > 0x10ffff) {
+          return entity;
+        }
+        return /\s/u.test(String.fromCodePoint(codePoint)) ? " " : entity;
+      })
+      .replace(/&nbsp;/giu, " ");
+    return value.length <= 40 && !/[\p{L}\p{N}]/u.test(decodedWhitespace);
+  }
+
   private findAdjacentExplicitReference(
     text: string,
     bracketStart: number,
@@ -1194,12 +1213,10 @@ export class QuranAyahDetector {
   ): ExplicitReference | undefined {
     const adjacent = references.filter(reference => {
       if (reference.start >= bracketEnd) {
-        const gap = text.slice(bracketEnd, reference.start);
-        return gap.length <= 40 && !/[\p{L}\p{N}]/u.test(gap);
+        return this.isCitationAdjacencyGap(text.slice(bracketEnd, reference.start));
       }
       if (reference.end <= bracketStart) {
-        const gap = text.slice(reference.end, bracketStart);
-        return gap.length <= 40 && !/[\p{L}\p{N}]/u.test(gap);
+        return this.isCitationAdjacencyGap(text.slice(reference.end, bracketStart));
       }
       return false;
     });
