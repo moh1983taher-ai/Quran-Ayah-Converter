@@ -67,6 +67,26 @@ function normalizeReferenceDigits(value: string): string {
   }).join("");
 }
 
+/**
+ * KFGQPC Uthmani records append the printed ayah number after the verse text.
+ * It belongs in the final replacement text, but not in the lexical word stream
+ * used to align the Uthmani words with the Imla'ei words.
+ */
+function tokenizeUthmaniAyah(record: QuranAyahRecord): ReturnType<typeof tokenizeArabic> {
+  const tokens = tokenizeArabic(record.uthmani);
+  const last = tokens[tokens.length - 1];
+  if (!last || last.end !== record.uthmani.trimEnd().length) return tokens;
+
+  const previous = tokens[tokens.length - 2];
+  const separatorStart = previous?.end ?? 0;
+  const separator = record.uthmani.slice(separatorStart, last.start);
+  const terminalDigits = normalizeReferenceDigits(record.uthmani.slice(last.start, last.end));
+  if (/^\\s+$/u.test(separator) && terminalDigits === String(record.ayah)) {
+    tokens.pop();
+  }
+  return tokens;
+}
+
 function matchesExplicitReferenceRange(
   records: readonly QuranAyahRecord[],
   reference: ExplicitReference
@@ -174,7 +194,7 @@ export class QuranAyahDetector {
         imlaeiTokens,
         imlaeiTokenCounts: countTokenValues(imlaeiTokens.map(token => token.value)),
         uthmaniNormalized: normalizeArabicWithMap(record.uthmani),
-        uthmaniTokens: tokenizeArabic(record.uthmani)
+        uthmaniTokens: tokenizeUthmaniAyah(record)
       };
       this.preparedRecords.set(record, prepared);
       this.recordPositions.set(record, position);
@@ -581,11 +601,12 @@ export class QuranAyahDetector {
       const found = this.matchPassage(searchableText, records, true);
       const segmentIndex = segmentOptions.length;
       const compatible = referenceCoversSegments
-        ? found.filter(item =>
-            item.records.length === 1 &&
-            item.records[0]!.surah === explicitReference.surah &&
-            item.records[0]!.ayah === explicitReference.ayah + segmentIndex
-          )
+        ? found.flatMap(item => item.records
+            .filter(record =>
+              record.surah === explicitReference.surah &&
+              record.ayah === explicitReference.ayah + segmentIndex
+            )
+            .map(record => ({ ...item, records: [record] })))
         : found;
       if (compatible.length !== 1) {
         return this.matchBracketedPassageByTokenSequence(content, records, explicitReference);
