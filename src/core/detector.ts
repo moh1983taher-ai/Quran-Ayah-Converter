@@ -78,7 +78,61 @@ function stripTrailingWaqfSigns(value: string): string {
 }
 
 function normalizeWhitespace(value: string): string {
-  return value.trim().replace(/\\s+/gu, " ");
+  return value.trim().replace(/\s+/gu, " ");
+}
+
+/**
+ * Compares the orthographic surface of a quoted Uthmani excerpt without
+ * treating ordinary vocalization variants as different words.
+ *
+ * Short vowels, tanween, sukun and pause signs are ignored. Shadda is kept
+ * because it can distinguish a real consonantal reading, while dagger alif
+ * is represented as an ordinary alif so the two orthographic spellings of
+ * the same long vowel remain comparable.
+ */
+function normalizeUthmaniSurface(value: string): string {
+  let result = "";
+  for (const character of value.normalize("NFKC")) {
+    if (
+      character === "\u0640" ||
+      /\p{Cf}/u.test(character) ||
+      /[ۖ-ۜ]/u.test(character)
+    ) continue;
+
+    // Equivalent KFGQPC/standard spellings observed in the pinned Hafs data.
+    // Keep every other haraka (including shadda and distinct tanween forms).
+    if (character === "ٰ") {
+      result += "ا";
+      continue;
+    }
+    if (character === "ٍ") {
+      result += "ٖ";
+      continue;
+    }
+    if (character === "ْ") {
+      result += "ۡ";
+      continue;
+    }
+    if (character === "ۥ") {
+      result += "و";
+      continue;
+    }
+    if (character === "ۦ") {
+      result += "ي";
+      continue;
+    }
+
+    result += ({
+      "أ": "ا",
+      "إ": "ا",
+      "آ": "ا",
+      "ٱ": "ا",
+      "ؤ": "ء",
+      "ئ": "ء",
+      "ى": "ي"
+    } as Record<string, string>)[character] ?? character;
+  }
+  return result.trim().replace(/\s+/gu, " ");
 }
 
 function normalizeReferenceDigits(value: string): string {
@@ -1003,16 +1057,25 @@ export class QuranAyahDetector {
           if (sourceValues.length === 1 && fragmentMatches.length !== 1) return [];
 
           const first = fragmentMatches[0]!;
-          // If the quotation preserves Uthmani marks, use its literal surface
-          // as additional evidence: retain only locations whose exact canonical
-          // excerpt is written the same way. Normalized text alone must not
-          // erase a real mark-level distinction.
-          const sourceSurface = normalizeWhitespace(source.slice(first.start, first.end));
-          const exactSurfaceMatches = fragmentMatches.filter(found =>
-            normalizeWhitespace(found.replacementText) === sourceSurface
-          );
-          const selectedFragmentMatches = exactSurfaceMatches.length > 0
-            ? exactSurfaceMatches
+          // Let the document's excerpt choose among repeated Uthmani forms.
+          // Ignore ordinary vocalization variants (fatha, kasra, tanween, sukun)
+          // and equivalent dagger-alif notation, but preserve shadda and the
+          // underlying letters so genuinely different surfaces remain distinct.
+          const sourceExcerpt = source.slice(first.start, first.end);
+          const sourceSurface = normalizeUthmaniSurface(sourceExcerpt);
+          // Absence of marks is not evidence: an unvocalized quotation must
+          // not arbitrarily select one of several Uthmani spellings. Apply
+          // surface narrowing only when the document actually carries a
+          // distinguishing mark such as shadda or dagger alif.
+          const hasDistinguishingMark = /\p{M}/u.test(sourceExcerpt) ||
+            /[ۥۦ]/u.test(sourceExcerpt);
+          const surfaceMatches = hasDistinguishingMark
+            ? fragmentMatches.filter(found =>
+                normalizeUthmaniSurface(found.replacementText) === sourceSurface
+              )
+            : [];
+          const selectedFragmentMatches = surfaceMatches.length > 0
+            ? surfaceMatches
             : fragmentMatches;
           const uniqueRecords = [...new Map(
             selectedFragmentMatches.map(found => [found.record.id, found.record])
@@ -1021,26 +1084,28 @@ export class QuranAyahDetector {
           // Every retained location must yield one identical canonical excerpt.
           // Otherwise a short excerpt remains unresolved until a citation
           // identifies the intended location.
+          const selectedSurface = normalizeUthmaniSurface(selectedFirst.replacementText);
           const sameUthmaniExcerpt = selectedFragmentMatches.every(
-            found => found.replacementText === selectedFirst.replacementText
+            found => normalizeUthmaniSurface(found.replacementText) === selectedSurface
           );
           const repeatedExactExcerpt = uniqueRecords.length > 1 && sameUthmaniExcerpt;
-          const surfaceResolved = exactSurfaceMatches.length > 0 &&
-            exactSurfaceMatches.length < fragmentMatches.length;
+          const surfaceResolved = surfaceMatches.length > 0 &&
+            surfaceMatches.length < fragmentMatches.length;
           const evidence: MatchEvidence[] = [{
             type: "exact-text",
             detail: surfaceResolved
-              ? "مقتطف مكرر بالرسم العثماني نفسه في المواضع المطابقة حرفيًا؛ استُبعدت المواضع ذات الضبط المختلف"
+              ? "مقتطف مكرر بالرسم العثماني نفسه من حيث البنية المميِّزة؛ استُبعدت المواضع ذات العلامات الفارقة المختلفة"
               : repeatedExactExcerpt
-                ? "مقتطف مكرر بالرسم العثماني نفسه في مواضع قرآنية متعددة"
+                ? "مقتطف مكرر بالرسم العثماني نفسه من حيث البنية، مع اختلافات ضبط غير فارقة في مواضع قرآنية متعددة"
                 : uniqueRecords.length > 1
                   ? "مقطع قرآني وارد في أكثر من موضع بصيغ عثمانية مختلفة؛ يلزم التحقق"
                   : "مقطع متصل مطابق لألفاظ آية قرآنية داخل الأقواس"
           }];
 
           // Keep all verified locations separately so an explicit adjacent
-          // citation can still override surface-based narrowing. Without a
-          // citation, only exact surface-compatible locations are returned.
+          // citation can still override surface-based narrowing. A common
+          // surface signature permits one shared replacement across locations
+          // even when non-distinguishing vocalization marks differ.
           return [{
             start: selectedFirst.start,
             end: selectedFirst.end,

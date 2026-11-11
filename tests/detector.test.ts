@@ -817,4 +817,62 @@ describe("repeated excerpt surface resolution", () => {
   });
 });
 
+
+describe("generalized Uthmani surface resolution", () => {
+  it("resolves repeated excerpts when only equivalent vocalization and dagger-alif notation differ", () => {
+    const records: QuranAyahRecord[] = [
+      {
+        id: "2:266", surah: 2, ayah: 266, surahNameArabic: "البقرة",
+        uthmani: "جَنَّةٞ مِّن نَّخِيلٖ وَأَعۡنَابٖ تَجۡرِي",
+        imlaei: "جنة من نخيل وأعناب تجري"
+      },
+      {
+        id: "23:19", surah: 23, ayah: 19, surahNameArabic: "المؤمنون",
+        uthmani: "جَنَّٰتٖ مِّن نَّخِيلٖ وَأَعْنَٰبٖ لَّكُمۡ",
+        imlaei: "جنات من نخيل وأعناب لكم"
+      },
+      {
+        id: "36:34", surah: 36, ayah: 34, surahNameArabic: "يس",
+        uthmani: "وَجَعَلۡنَا فِيهَا جَنَّٰتٖ مِّن نَّخِيلٖ وَأَعْنَٰبٖ وَفَجَّرۡنَا",
+        imlaei: "وجعلنا فيها جنات من نخيل وأعناب وفجرنا"
+      }
+    ];
+    const detector = new QuranAyahDetector(new InMemoryQuranIndex(records));
+    const quote = "مِّن نَّخِيلٍ وَأَعْنَابٍ";
+    const text = `قال تعالى ﴿${quote}﴾`;
+    const matches = detector.detect(text);
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.references).toEqual([
+      { surah: 2, ayah: 266 },
+      { surah: 23, ayah: 19 },
+      { surah: 36, ayah: 34 }
+    ]);
+    expect(matches[0]?.status).toBe("high-confidence");
+    expect(matches[0]?.replacementText).toBeDefined();
+    expect(createReviewItems(text, matches)[0]?.replacementText).toBe(matches[0]?.replacementText);
+  });
+
+  it("still separates genuinely different consonantal surfaces such as a present versus absent shadda", () => {
+    const records: QuranAyahRecord[] = [
+      {
+        id: "1:1", surah: 1, ayah: 1, surahNameArabic: "الفاتحة",
+        uthmani: "مِّن نَّخِيلٍ وَأَعْنَابٍ",
+        imlaei: "من نخيل وأعناب"
+      },
+      {
+        id: "2:1", surah: 2, ayah: 1, surahNameArabic: "البقرة",
+        uthmani: "مِن نَّخِيلٍ وَأَعْنَابٍ",
+        imlaei: "من نخيل وأعناب"
+      }
+    ];
+    const detector = new QuranAyahDetector(new InMemoryQuranIndex(records));
+    const text = "قال تعالى ﴿مِّن نَّخِيلٍ وَأَعْنَابٍ﴾";
+    const match = detector.detect(text)[0];
+
+    expect(match?.references).toEqual([{ surah: 1, ayah: 1 }]);
+    expect(match?.status).toBe("high-confidence");
+  });
+});
+
 });
