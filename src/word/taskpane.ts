@@ -1178,53 +1178,57 @@ async function applyApprovedReplacements(): Promise<void> {
     const citationPlans = plans.filter(({ plan }) => plan.citationEdit.kind === "replace");
     const citationValidationStarted = performance.now();
     if (citationPlans.length) {
-      // Resolve all parent paragraphs in one Office round-trip.
-      const paragraphCollections = citationPlans.map(({ entry }) =>
-        entry.range.paragraphs.load("items")
-      );
-      await context.sync();
+      // Keep Office.js request payloads bounded. Large documents can contain
+      // hundreds of citations; one giant paragraph/search request is fragile.
+      const officeBatchSize = 30;
+      for (let offset = 0; offset < citationPlans.length; offset += officeBatchSize) {
+        const batch = citationPlans.slice(offset, offset + officeBatchSize);
+        const paragraphCollections = batch.map(({ entry }) =>
+          entry.range.paragraphs.load("items")
+        );
+        await context.sync();
 
-      // Queue every citation search before syncing; never perform two syncs per item.
-      const searches: Array<{
-        itemId: string;
-        matches: WordCollection<WordRange>;
-        text: string;
-        replacementText: string;
-      }> = [];
-      citationPlans.forEach(({ entry, review, plan }, index) => {
-        if (plan.citationEdit.kind !== "replace") return;
-        if (!review?.existingCitation) {
-          throw new Error("تعذر تثبيت التخريج الخاطئ وحده؛ أعد فحص النص قبل الاعتماد.");
-        }
-        const paragraphRange = paragraphCollections[index]!.items[0]?.getRange("Content");
-        if (!paragraphRange) throw new Error("تعذر الوصول إلى الفقرة لتصحيح التخريج.");
-        searches.push({
-          itemId: entry.item.id,
-          matches: paragraphRange.search(review.existingCitation, {
-            matchCase: true,
-            matchWholeWord: false
-          }).load("items"),
-          text: review.existingCitation,
-          replacementText: plan.citationEdit.text
+        const searches: Array<{
+          itemId: string;
+          matches: WordCollection<WordRange>;
+          text: string;
+          replacementText: string;
+        }> = [];
+        batch.forEach(({ entry, review, plan }, index) => {
+          if (plan.citationEdit.kind !== "replace") return;
+          if (!review?.existingCitation) {
+            throw new Error("تعذر تثبيت التخريج الخاطئ وحده؛ أعد فحص النص قبل الاعتماد.");
+          }
+          const paragraphRange = paragraphCollections[index]!.items[0]?.getRange("Content");
+          if (!paragraphRange) throw new Error("تعذر الوصول إلى الفقرة لتصحيح التخريج.");
+          searches.push({
+            itemId: entry.item.id,
+            matches: paragraphRange.search(review.existingCitation, {
+              matchCase: true,
+              matchWholeWord: false
+            }).load("items"),
+            text: review.existingCitation,
+            replacementText: plan.citationEdit.text
+          });
         });
-      });
-      if (searches.length) await context.sync();
+        if (searches.length) await context.sync();
 
-      for (const search of searches) {
-        for (const match of search.matches.items) match.load("text");
-      }
-      if (searches.some(search => search.matches.items.length)) await context.sync();
-
-      for (const search of searches) {
-        if (search.matches.items.length !== 1 ||
-            search.matches.items[0]!.text !== search.text) {
-          throw new Error("التخريج المكرر أو المتغير لا يمكن تثبيت موضعه بأمان؛ لم يُجرَ أي تعديل.");
+        for (const search of searches) {
+          for (const match of search.matches.items) match.load("text");
         }
-        citationRanges.push({
-          itemId: search.itemId,
-          range: search.matches.items[0]!,
-          text: search.replacementText
-        });
+        if (searches.length) await context.sync();
+
+        for (const search of searches) {
+          if (search.matches.items.length !== 1 ||
+              search.matches.items[0]!.text !== search.text) {
+            throw new Error("التخريج المكرر أو المتغير لا يمكن تثبيت موضعه بأمان؛ لم يُجرَ أي تعديل.");
+          }
+          citationRanges.push({
+            itemId: search.itemId,
+            range: search.matches.items[0]!,
+            text: search.replacementText
+          });
+        }
       }
     }
     applyMetrics.citationValidationMs = performance.now() - citationValidationStarted;
@@ -1237,29 +1241,40 @@ async function applyApprovedReplacements(): Promise<void> {
     // Track independent citation ranges before edits so Word keeps their
     // positions stable when other citations/verses in the same paragraph move.
     for (const operation of citationRanges) context.trackedObjects.add(operation.range);
-    // Citation-only operations target their own ranges. Insertions are made
-    // after the verse range; corrections replace only the citation range.
-    for (const { entry, plan } of plans) {
-      if (plan.citationEdit.kind === "insert") {
-        entry.range.insertText(
-          plan.citationEdit.separator + plan.citationEdit.text,
-          "After"
-        );
+    // Apply bounded batches. Tracked Word ranges preserve their locations
+    // across the preceding citation edits, while each sync stays small.
+    const mutationBatchSize = 30;
+    for (let offset = 0; offset < plans.length; offset += mutationBatchSize) {
+      const batch = plans.slice(offset, offset + mutationBatchSize);
+      for (const { entry, plan } of batch) {
+        if (plan.citationEdit.kind === "insert") {
+          entry.range.insertText(
+            plan.citationEdit.separator + plan.citationEdit.text,
+            "After"
+          );
+        }
+      }
+      const batchIds = new Set(batch.map(({ entry }) => entry.item.id));
+      for (const operation of citationRanges) {
+        if (batchIds.has(operation.itemId)) operation.range.insertText(operation.text, "Replace");
+      }
+      if (batch.some(({ plan }) => plan.citationEdit.kind !== "none")) {
+        await context.sync();
       }
     }
-    for (const operation of citationRanges) {
-      operation.range.insertText(operation.text, "Replace");
-    }
     // Verse conversion is deliberately last and touches only the verse range.
-    for (const { entry, plan } of plans) {
-      if (!plan.convertVerse) continue;
-      const inserted = entry.range.insertText(
-        ensureOrnamentalVerseBrackets(entry.item.replacementText),
-        "Replace"
-      );
-      inserted.font.name = "KFGQPC HAFS Uthmanic Script";
+    for (let offset = 0; offset < plans.length; offset += mutationBatchSize) {
+      const batch = plans.slice(offset, offset + mutationBatchSize);
+      for (const { entry, plan } of batch) {
+        if (!plan.convertVerse) continue;
+        const inserted = entry.range.insertText(
+          ensureOrnamentalVerseBrackets(entry.item.replacementText),
+          "Replace"
+        );
+        inserted.font.name = "KFGQPC HAFS Uthmanic Script";
+      }
+      if (batch.some(({ plan }) => plan.convertVerse)) await context.sync();
     }
-    await context.sync();
     for (const entry of entries) context.trackedObjects.remove(entry.range);
     for (const operation of citationRanges) context.trackedObjects.remove(operation.range);
     for (const range of additionalTrackedRanges) context.trackedObjects.remove(range);
