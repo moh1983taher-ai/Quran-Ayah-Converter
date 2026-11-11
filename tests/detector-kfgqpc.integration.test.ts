@@ -4,6 +4,7 @@ import { InMemoryQuranIndex } from "../src/core/quran-index.js";
 import { createReviewItems } from "../src/word/review-workflow.js";
 import { kfgqpcHafsSamples } from "./fixtures/kfgqpc-hafs-samples.js";
 import type { QuranAyahRecord } from "../src/core/types.js";
+import { tokenizeArabic } from "../src/core/alignment.js";
 
 describe("QuranAyahDetector with real KFGQPC Hafs v18 records", () => {
   const detector = new QuranAyahDetector(new InMemoryQuranIndex(kfgqpcHafsSamples));
@@ -20,6 +21,18 @@ describe("QuranAyahDetector with real KFGQPC Hafs v18 records", () => {
     const local = new QuranAyahDetector(new InMemoryQuranIndex([verse]));
     const quote = "وَلْيَسْتَعْفِفِ الَّذِينَ لَا يَجِدُونَ نِكَاحًا حَتَّىٰ يُغْنِيَهُمُ اللَّهُ مِنْ فَضْلِهِ ۗ وَالَّذِينَ يَبْتَغُونَ الْكِتَابَ مِمَّا مَلَكَتْ أَيْمَانُكُمْ فَكَاتِبُوهُمْ إِنْ عَلِمْتُمْ فِيهِمْ خَيْرًا ۖ وَآتُوهُمْ مِنْ مَالِ اللَّهِ الَّذِي آتَاكُمْ ۚ وَلَا تُكْرِهُوا فَتَيَاتِكُمْ عَلَى الْبِغَاءِ إِنْ أَرَدْنَ تَحَصُّنًا لِتَبْتَغُوا عَرَضَ الْحَيَاةِ الدُّنْيَا ۚ وَمَنْ يُكْرِهْهُنَّ فَإِنَّ اللَّهَ مِنْ بَعْدِ إِكْرَاهِهِنَّ غَفُورٌ رَحِيمٌ";
     const text = `قال تعالى ﴿${quote}﴾`;
+    const sourceTokens = tokenizeArabic(quote).map(token => token.value);
+    const imlaeiTokens = tokenizeArabic(verse.imlaei).map(token => token.value);
+    const uthmaniTokens = tokenizeArabic(verse.uthmani).map(token => token.value);
+    console.log("AN-NUR-24-33-DIAGNOSTICS", {
+      sourceCount: sourceTokens.length,
+      imlaeiCount: imlaeiTokens.length,
+      uthmaniCount: uthmaniTokens.length,
+      source: sourceTokens,
+      imlaei: imlaeiTokens,
+      uthmani: uthmaniTokens,
+      diagnostics: local.getDiagnostics()
+    });
     const matches = local.detect(text);
     expect(matches).toHaveLength(1);
     expect(matches[0]?.references).toEqual([{ surah: 24, ayah: 33 }]);
