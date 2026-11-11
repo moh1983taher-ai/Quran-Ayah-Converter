@@ -32,15 +32,15 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Verify source and tests
-        run: |
-          npm run typecheck
-          npm test
-
       - name: Import and validate the approved Hafs dataset
         run: |
           npm run import:kfgqpc
           node --input-type=module -e 'import { readFileSync } from "node:fs"; const data = JSON.parse(readFileSync("data/quran-hafs.json", "utf8")); if (data.recordCount !== 6236 || data.records?.length !== 6236) throw new Error("Hafs dataset must contain exactly 6,236 ayahs"); console.log("Verified", data.recordCount, "Hafs ayahs");'
+
+      - name: Verify source and tests
+        run: |
+          npm run typecheck
+          npm test
 
       - name: Build task pane bundle
         run: npm run build:taskpane
