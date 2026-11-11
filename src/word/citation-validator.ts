@@ -1,5 +1,6 @@
 import type { QuranIndex, AyahReference, QuranAyahRecord } from "../core/types.js";
 import { normalizeArabic } from "../core/normalizer.js";
+import { normalizeArabicDigits } from "../core/arabic-digits.js";
 
 export type CitationStatus = "valid" | "invalid" | "ambiguous" | "unrecognized";
 export interface QuranCitationIssue {
@@ -11,12 +12,8 @@ export interface QuranCitationIssue {
   message: string;
   suggestedCitation?: string;
 }
-const DIGITS = "٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹";
-function asciiDigits(value: string): string {
-  return value.replace(/[٠-٩۰-۹]/gu, d => String(DIGITS.indexOf(d) % 10));
-}
 function compact(value: string): string {
-  return normalizeArabic(asciiDigits(value)).replace(/[\sـ]/gu, "").replace(/[–—−]/gu, "-");
+  return normalizeArabic(normalizeArabicDigits(value)).replace(/[\sـ]/gu, "").replace(/[–—−]/gu, "-");
 }
 function surahNumber(name: string, index: QuranIndex): number | undefined {
   const normalized = compact(name.replace(/^سورة/u, ""));
@@ -36,13 +33,13 @@ function citationFor(surah: number, start: number, end: number, index: QuranInde
 /** Detect citations in common Arabic scholarly forms and validate them against the loaded canonical dataset. */
 export function validateQuranCitations(text: string, index: QuranIndex): QuranCitationIssue[] {
   const issues: QuranCitationIssue[] = [];
-  const pattern = /\[(?:سورة\s*)?([^\]:،؛]+?)\s*[:：،]\s*(?:الآية\s*)?(\d{1,3}|[٠-٩۰-۹]{1,3})(?:\s*[-–—]\s*(\d{1,3}|[٠-٩۰-۹]{1,3}))?\]/gu;
+  const pattern = /\[(?:سورة\s*)?([^\]:،؛]+?)\s*[:：،]\s*(?:الآية\s*)?([0-9٠-٩۰-۹]{1,3})(?:\s*[-–—]\s*([0-9٠-٩۰-۹]{1,3}))?\]/gu;
   for (const match of text.matchAll(pattern)) {
     const start = match.index ?? 0;
     const original = match[0];
     const surah = surahNumber(match[1]!.trim(), index);
-    const first = Number(asciiDigits(match[2]!));
-    const last = Number(asciiDigits(match[3] ?? match[2]!));
+    const first = Number(normalizeArabicDigits(match[2]!));
+    const last = Number(normalizeArabicDigits(match[3] ?? match[2]!));
     if (!surah) {
       issues.push({ start, end: start + original.length, original, status: "ambiguous", references: [], message: "اسم السورة غير معروف أو يحتمل أكثر من اسم." });
       continue;
