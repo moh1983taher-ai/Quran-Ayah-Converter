@@ -91,7 +91,7 @@ function tokenizeUthmaniAyah(record: QuranAyahRecord): ReturnType<typeof tokeniz
   const separatorStart = previous?.end ?? 0;
   const separator = record.uthmani.slice(separatorStart, last.start);
   const terminalDigits = normalizeReferenceDigits(record.uthmani.slice(last.start, last.end));
-  if (/^\\s+$/u.test(separator) && terminalDigits === String(record.ayah)) {
+  if (/^\s+$/u.test(separator) && terminalDigits === String(record.ayah)) {
     tokens.pop();
   }
   return tokens;
