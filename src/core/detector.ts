@@ -99,16 +99,20 @@ function normalizeUthmaniSurface(value: string): string {
       /[ۖ-ۜ]/u.test(character)
     ) continue;
 
+    // Equivalent KFGQPC/standard spellings observed in the pinned Hafs data.
+    // Keep every other haraka (including shadda and distinct tanween forms).
     if (character === "ٰ") {
       result += "ا";
       continue;
     }
-
-    if (/\p{M}/u.test(character)) {
-      if (character === "ّ") result += character;
+    if (character === "ٍ") {
+      result += "ٖ";
       continue;
     }
-
+    if (character === "ْ") {
+      result += "ۡ";
+      continue;
+    }
     if (character === "ۥ") {
       result += "و";
       continue;
@@ -1063,7 +1067,8 @@ export class QuranAyahDetector {
           // not arbitrarily select one of several Uthmani spellings. Apply
           // surface narrowing only when the document actually carries a
           // distinguishing mark such as shadda or dagger alif.
-          const hasDistinguishingMark = /[ّٰۥۦ]/u.test(sourceExcerpt);
+          const hasDistinguishingMark = /\p{M}/u.test(sourceExcerpt) ||
+            /[ۥۦ]/u.test(sourceExcerpt);
           const surfaceMatches = hasDistinguishingMark
             ? fragmentMatches.filter(found =>
                 normalizeUthmaniSurface(found.replacementText) === sourceSurface
