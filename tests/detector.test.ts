@@ -756,4 +756,65 @@ describe("bracketed quotation integrity", () => {
     expect(matches.every(match => text.slice(match.sourceStart, match.sourceEnd) !== "واتقوا الله ولا تخزون")).toBe(true);
   });
 
+
+describe("repeated excerpt surface resolution", () => {
+  const references = [
+    [2, 189], [3, 130], [3, 200], [5, 35], [5, 90], [5, 100],
+    [7, 69], [8, 45], [22, 77], [24, 31], [62, 10]
+  ] as const;
+
+  const excerpt = "لَعَلَّكُمۡ تُفۡلِحُونَ";
+  const markedVariant = "لَّعَلَّكُمۡ تُفۡلِحُونَ";
+  const repeatedRecords: QuranAyahRecord[] = references.map(([surah, ayah]) => {
+    const uthmaniExcerpt = surah === 8 || surah === 62 ? markedVariant : excerpt;
+    return {
+      id: `${surah}:${ayah}`,
+      surah,
+      ayah,
+      surahNameArabic: `سورة ${surah}`,
+      uthmani: `سَبِيلٌ ${uthmaniExcerpt}`,
+      imlaei: "سبيل لعلكم تفلحون"
+    };
+  });
+
+  it("approves the exact Uthmani surface shared by nine of eleven repeated locations", () => {
+    const detector = new QuranAyahDetector(new InMemoryQuranIndex(repeatedRecords));
+    const text = `شرح ﴿${excerpt}﴾ ثم متابعة`;
+    const matches = detector.detect(text);
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.references).toEqual(
+      references
+        .filter(([surah]) => surah !== 8 && surah !== 62)
+        .map(([surah, ayah]) => ({ surah, ayah }))
+    );
+    expect(matches[0]?.status).toBe("high-confidence");
+    expect(matches[0]?.replacementText).toBe(excerpt);
+    expect(createReviewItems(text, matches)).toHaveLength(1);
+    expect(createReviewItems(text, matches)[0]?.replacementText).toBe(excerpt);
+  });
+
+  it("keeps the repeated excerpt ambiguous when the source omits the distinguishing marks", () => {
+    const detector = new QuranAyahDetector(new InMemoryQuranIndex(repeatedRecords));
+    const text = "شرح ﴿لعلكم تفلحون﴾ ثم متابعة";
+    const match = detector.detect(text)[0];
+
+    expect(match?.status).toBe("ambiguous");
+    expect(match?.replacementText).toBeUndefined();
+    expect(match?.references).toHaveLength(11);
+  });
+
+  it("lets a valid adjacent citation select a different exact location and its Uthmani form", () => {
+    const detector = new QuranAyahDetector(new InMemoryQuranIndex(repeatedRecords));
+    const text = `شرح ﴿${excerpt}﴾ [الأنفال: 45]`;
+    const match = detector.detect(text).find(item =>
+      item.references.some(reference => reference.surah === 8 && reference.ayah === 45)
+    );
+
+    expect(match?.references).toEqual([{ surah: 8, ayah: 45 }]);
+    expect(match?.replacementText).toBe(markedVariant);
+    expect(match?.status).not.toBe("ambiguous");
+  });
+});
+
 });
