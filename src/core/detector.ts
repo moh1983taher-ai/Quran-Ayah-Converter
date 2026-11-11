@@ -862,10 +862,20 @@ export class QuranAyahDetector {
         end: selected.end,
         records: [selected.record],
         replacementText: selected.replacementText,
-        evidence: [...match.evidence, {
-          type: "explicit-reference",
-          detail: explicitReference.raw
-        }]
+        evidence: [
+          ...match.evidence.filter(item =>
+            !(item.type === "exact-text" &&
+              item.detail.includes("المواضع المطابقة حرفيًا"))
+          ),
+          {
+            type: "explicit-reference",
+            detail: explicitReference.raw
+          },
+          {
+            type: "context",
+            detail: "حُسم الموضع بالتخريج الصريح؛ اعتُمد الرسم العثماني الخاص به"
+          }
+        ]
       });
     }
 
