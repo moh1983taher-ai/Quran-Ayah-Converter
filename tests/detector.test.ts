@@ -428,6 +428,59 @@ describe("QuranAyahDetector", () => {
     expect(matches[0]?.canonicalText).toBe("");
   });
 
+  it("uses an adjacent single-ayah reference to resolve repeated text with different Uthmani forms", () => {
+    const common = "إِلَّا الَّذِينَ تَابُوا مِن بَعْدِ ذَٰلِكَ وَأَصْلَحُوا فَإِنَّ اللَّهَ غَفُورٌ رَحِيمٌ";
+    const records: QuranAyahRecord[] = [
+      {
+        id: "3:89", surah: 3, ayah: 89, surahNameArabic: "آل عمران",
+        uthmani: common.replace("رَحِيمٌ", "رَّحِيمٌ"),
+        imlaei: "إلا الذين تابوا من بعد ذلك وأصلحوا فإن الله غفور رحيم"
+      },
+      {
+        id: "24:5", surah: 24, ayah: 5, surahNameArabic: "النور",
+        uthmani: common.replace("رَحِيمٌ", "رَّحِيمٞ"),
+        imlaei: "إلا الذين تابوا من بعد ذلك وأصلحوا فإن الله غفور رحيم"
+      }
+    ];
+    const repeatedDetector = new QuranAyahDetector(new InMemoryQuranIndex(records));
+    const quote = "﴿إِلَّا الَّذِينَ تَابُوا مِن بَعْدِ ذَٰلِكَ وَأَصْلَحُوا فَإِنَّ اللَّهَ غَفُورٌ رَحِيمٌ﴾";
+    const text = quote + " [النور: ٥]";
+    const matches = repeatedDetector.detect(text);
+    const match = matches.find(item => item.references.some(ref => ref.surah === 24 && ref.ayah === 5));
+
+    expect(matches).toHaveLength(1);
+    expect(match).toBeDefined();
+    expect(match?.references).toEqual([{ surah: 24, ayah: 5 }]);
+    expect(match?.canonicalText).toBe(records[1]?.uthmani);
+    expect(match?.canonicalText).not.toBe(records[0]?.uthmani);
+    expect(match?.status).not.toBe("ambiguous");
+  });
+
+  it("keeps repeated ayahs with different Uthmani forms ambiguous without a reference", () => {
+    const common = "إِلَّا الَّذِينَ تَابُوا مِن بَعْدِ ذَٰلِكَ وَأَصْلَحُوا فَإِنَّ اللَّهَ غَفُورٌ رَحِيمٌ";
+    const records: QuranAyahRecord[] = [
+      { id: "3:89", surah: 3, ayah: 89, surahNameArabic: "آل عمران", uthmani: common.replace("رَحِيمٌ", "رَّحِيمٌ"), imlaei: "إلا الذين تابوا من بعد ذلك وأصلحوا فإن الله غفور رحيم" },
+      { id: "24:5", surah: 24, ayah: 5, surahNameArabic: "النور", uthmani: common.replace("رَحِيمٌ", "رَّحِيمٞ"), imlaei: "إلا الذين تابوا من بعد ذلك وأصلحوا فإن الله غفور رحيم" }
+    ];
+    const repeatedDetector = new QuranAyahDetector(new InMemoryQuranIndex(records));
+    const match = repeatedDetector.detect("﴿" + common + "﴾")[0];
+    expect(match?.status).toBe("ambiguous");
+    expect(match?.canonicalText).toBe("");
+    expect(match?.references).toHaveLength(2);
+  });
+
+  it("does not use a conflicting citation to resolve repeated ayah forms", () => {
+    const common = "إِلَّا الَّذِينَ تَابُوا مِن بَعْدِ ذَٰلِكَ وَأَصْلَحُوا فَإِنَّ اللَّهَ غَفُورٌ رَحِيمٌ";
+    const records: QuranAyahRecord[] = [
+      { id: "3:89", surah: 3, ayah: 89, surahNameArabic: "آل عمران", uthmani: common.replace("رَحِيمٌ", "رَّحِيمٌ"), imlaei: "إلا الذين تابوا من بعد ذلك وأصلحوا فإن الله غفور رحيم" },
+      { id: "24:5", surah: 24, ayah: 5, surahNameArabic: "النور", uthmani: common.replace("رَحِيمٌ", "رَّحِيمٞ"), imlaei: "إلا الذين تابوا من بعد ذلك وأصلحوا فإن الله غفور رحيم" }
+    ];
+    const repeatedDetector = new QuranAyahDetector(new InMemoryQuranIndex(records));
+    const matches = repeatedDetector.detect("﴿" + common + "﴾ [البقرة: ٥]");
+    expect(matches.every(match => match.status === "ambiguous")).toBe(true);
+    expect(matches.some(match => match.references.some(ref => ref.surah === 24 && ref.ayah === 5))).toBe(false);
+  });
+
   it("exposes cumulative stage diagnostics without changing detection results", () => {
     const measuredDetector = new QuranAyahDetector(new InMemoryQuranIndex(records));
     const matches = measuredDetector.detect("قال تعالى: بسم الله الرحمن الرحيم.");
