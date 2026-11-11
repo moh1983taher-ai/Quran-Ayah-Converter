@@ -3,7 +3,8 @@ import { normalizeArabic } from "../core/normalizer.js";
 import { loadQuranDatasetJson } from "../core/dataset-loader.js";
 import { createReviewItems, createScopedReviewItems, getReviewSelectionCounts, groupBracketedAyahMatches, setReviewDecision, type ReviewItem } from "./review-workflow.js";
 import { ensureOrnamentalVerseBrackets } from "./verse-format.js";
-import { composeQuranCitationReplacement, formatQuranCitation, inspectAdjacentQuranCitation, resolveQuranCitationOperationOptions, verifyAndComposeQuranCitationReplacement, type QuranCitationReview } from "./quran-citation.js";
+import { formatQuranCitation, inspectAdjacentQuranCitation, resolveQuranCitationOperationOptions, type QuranCitationReview } from "./quran-citation.js";
+import { createWordApplyPlan } from "./apply-plan.js";
 import { findLegacyBracketPairs, type MatchedBracketPair } from "./bracket-normalizer.js";
 
 
@@ -27,7 +28,7 @@ interface WordRange {
   load(property: string): WordRange;
   expandTo(range: WordRange): WordRange;
   intersectWithOrNullObject(range: WordRange): WordRange;
-  insertText(text: string, location: "Replace"): WordRange;
+  insertText(text: string, location: "Replace" | "After"): WordRange;
   search(query: string, options: { matchCase: boolean; matchWholeWord: boolean }): WordCollection<WordRange>;
 }
 interface WordParagraph { text: string; getRange(location?: "Content" | "Whole"): WordRange; }
@@ -48,9 +49,11 @@ interface StoredReviewedRange {
   paragraphIndex: number;
   start: number;
   end: number;
+  verseEnd: number;
   /** Offset immediately after the quoted verse and its closing delimiter, before any citation. */
   citationVerseEnd: number;
   expectedText: string;
+  citationExpectedText?: string;
 }
 const itemRanges = new Map<string, StoredReviewedRange>();
 let datasetPromise: Promise<ReturnType<typeof loadQuranDatasetJson>> | undefined;
@@ -566,18 +569,14 @@ async function inspectDocument(): Promise<void> {
             paragraphText, citationVerseEnd, expectedCitation, item.references, loaded.index
           );
           item.citationReview = citationReview;
-          // A clearly incorrect adjacent citation is part of this review unit.
-          // The stored range then covers verse + separator + citation, so a
-          // single guarded Word replacement repairs both without duplication.
-          if (citationReview.status === "incorrect" && citationReview.end !== undefined) {
-            end = citationReview.end;
-          }
           const stored: StoredReviewedRange = {
             paragraphIndex: index,
             start,
-            end,
+            end: citationVerseEnd,
+            verseEnd: citationVerseEnd,
             citationVerseEnd,
-            expectedText: paragraphText.slice(start, end)
+            expectedText: paragraphText.slice(start, citationVerseEnd),
+            ...(citationReview.existingCitation ? { citationExpectedText: citationReview.existingCitation } : {})
           };
           itemRanges.set(item.id, stored);
           pendingRangeRequests.push({ item, stored, paragraph, snapshot: paragraphText });
@@ -782,18 +781,17 @@ async function inspectSelectedText(): Promise<void> {
             { start: 0, end: segment.text.length }
           );
           item.citationReview = citationReview;
-          if (citationReview.status === "incorrect" && citationReview.end !== undefined) {
-            end = citationReview.end;
-          }
           const stored: StoredReviewedRange = {
             scope: "selection",
             scopeSnapshot: segment.text,
             scopeRange: segment.range,
             paragraphIndex: segment.paragraphIndex,
             start,
-            end,
+            end: citationVerseEnd,
+            verseEnd: citationVerseEnd,
             citationVerseEnd,
-            expectedText: segment.text.slice(start, end)
+            expectedText: segment.text.slice(start, citationVerseEnd),
+            ...(citationReview.existingCitation ? { citationExpectedText: citationReview.existingCitation } : {})
           };
           itemRanges.set(item.id, stored);
           pending.push({
