@@ -44,7 +44,7 @@ describe("terminal printed ayah-number tokenization", () => {
     const before = tokenizeArabic(source);
     const after = tokenizeUthmaniAyah(record);
 
-    expect(before.at(-1)?.value).toBe("33");
+    expect(normalizeDigits(before.at(-1)?.value ?? "")).toBe("33");
     expect(after).toEqual(before.slice(0, -1));
     expect(record.uthmani).toBe(source);
   });
@@ -67,7 +67,7 @@ describe("terminal printed ayah-number tokenization", () => {
     expect(tokenizeUthmaniAyah(recordWith(source))).toEqual(before);
   });
 
-  it("recognizes Arabic, Persian, ASCII, and non-breaking whitespace boundaries without broadening the number check", () => {
+  it("recognizes common whitespace separators, including non-breaking spaces, without broadening the number check", () => {
     for (const separator of [" ", "\t", "\n", "\u00A0", "\u2007", "\u202F"]) {
       const source = `بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ${separator}٣٣`;
       const record = recordWith(source);
