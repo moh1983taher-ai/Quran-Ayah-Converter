@@ -471,6 +471,107 @@ describe("multi-ayah bracketed excerpt continuity", () => {
     expect(text.slice(match!.sourceStart, match!.sourceEnd)).toBe(text.slice(text.indexOf("﴿"), text.indexOf("﴾") + 1));
     expect(match?.replacementText).toBeDefined();
   });
+
+  it("uses an adjacent Arabic-Indic verse range to resolve a repeated multi-ayah passage", () => {
+    const passageVerses = [
+      {
+        ayah: 5,
+        uthmani: "وَالَّذِينَ هُمْ لِفُرُوجِهِمْ حَافِظُونَ",
+        imlaei: "والذين هم لفروجهم حافظون"
+      },
+      {
+        ayah: 6,
+        uthmani: "إِلَّا عَلَىٰ أَزْوَاجِهِمْ أَوْ مَا مَلَكَتْ أَيْمَانُهُمْ فَإِنَّهُمْ غَيْرُ مَلُومِينَ",
+        imlaei: "الا على ازواجهم او ما ملكت ايمانهم فانهم غير ملومين"
+      },
+      {
+        ayah: 7,
+        uthmani: "فَمَنِ ابْتَغَىٰ وَرَاءَ ذَٰلِكَ فَأُولَٰئِكَ هُمُ الْعَادُونَ",
+        imlaei: "فمن ابتغى وراء ذلك فاولئك هم العادون"
+      }
+    ];
+    const duplicateRecords: QuranAyahRecord[] = [
+      ...passageVerses.map(verse => ({
+        id: "23:" + verse.ayah, surah: 23, ayah: verse.ayah, surahNameArabic: "المؤمنون",
+        uthmani: verse.uthmani, imlaei: verse.imlaei
+      })),
+      ...passageVerses.map(verse => ({
+        id: "70:" + (verse.ayah + 24), surah: 70, ayah: verse.ayah + 24, surahNameArabic: "المعارج",
+        uthmani: verse.uthmani, imlaei: verse.imlaei
+      }))
+    ];
+    const passageDetector = new QuranAyahDetector(new InMemoryQuranIndex(duplicateRecords));
+    const quotation = "﴿وَالَّذِينَ هُمْ لِفُرُوجِهِمْ حَافِظُونَ * إِلَّا عَلَىٰ أَزْوَاجِهِمْ أَوْ مَا مَلَكَتْ أَيْمَانُهُمْ فَإِنَّهُمْ غَيْرُ مَلُومِينَ * فَمَنِ ابْتَغَىٰ وَرَاءَ ذَٰلِكَ فَأُولَٰئِكَ هُمُ الْعَادُونَ﴾";
+    const text = quotation + " [المؤمنون: ٥-٧]";
+    const matches = passageDetector.detect(text);
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.matchedText).toBe(quotation);
+    expect(matches[0]?.references).toEqual([
+      { surah: 23, ayah: 5 },
+      { surah: 23, ayah: 6 },
+      { surah: 23, ayah: 7 }
+    ]);
+    expect(matches[0]?.replacementText).toBeDefined();
+    expect(matches[0]?.evidence.some(item =>
+      item.type === "explicit-reference" && item.detail.includes("المؤمنون")
+    )).toBe(true);
+  });
+
+  it("uses an Al-Ma'arij range with mixed numeral forms to resolve the same passage", () => {
+    const passageVerses = [
+      { ayah: 5, uthmani: "وَالَّذِينَ هُمْ لِفُرُوجِهِمْ حَافِظُونَ", imlaei: "والذين هم لفروجهم حافظون" },
+      { ayah: 6, uthmani: "إِلَّا عَلَىٰ أَزْوَاجِهِمْ أَوْ مَا مَلَكَتْ أَيْمَانُهُمْ فَإِنَّهُمْ غَيْرُ مَلُومِينَ", imlaei: "الا على ازواجهم او ما ملكت ايمانهم فانهم غير ملومين" },
+      { ayah: 7, uthmani: "فَمَنِ ابْتَغَىٰ وَرَاءَ ذَٰلِكَ فَأُولَٰئِكَ هُمُ الْعَادُونَ", imlaei: "فمن ابتغى وراء ذلك فاولئك هم العادون" }
+    ];
+    const duplicateRecords: QuranAyahRecord[] = [
+      ...passageVerses.map(verse => ({
+        id: "23:" + verse.ayah, surah: 23, ayah: verse.ayah, surahNameArabic: "المؤمنون",
+        uthmani: verse.uthmani, imlaei: verse.imlaei
+      })),
+      ...passageVerses.map(verse => ({
+        id: "70:" + (verse.ayah + 24), surah: 70, ayah: verse.ayah + 24, surahNameArabic: "المعارج",
+        uthmani: verse.uthmani, imlaei: verse.imlaei
+      }))
+    ];
+    const passageDetector = new QuranAyahDetector(new InMemoryQuranIndex(duplicateRecords));
+    const quotation = "﴿وَالَّذِينَ هُمْ لِفُرُوجِهِمْ حَافِظُونَ * إِلَّا عَلَىٰ أَزْوَاجِهِمْ أَوْ مَا مَلَكَتْ أَيْمَانُهُمْ فَإِنَّهُمْ غَيْرُ مَلُومِينَ * فَمَنِ ابْتَغَىٰ وَرَاءَ ذَٰلِكَ فَأُولَٰئِكَ هُمُ الْعَادُونَ﴾";
+    const matches = passageDetector.detect(quotation + " [المعارج الآيات ٢٩–31]");
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.references).toEqual([
+      { surah: 70, ayah: 29 },
+      { surah: 70, ayah: 30 },
+      { surah: 70, ayah: 31 }
+    ]);
+    expect(matches[0]?.replacementText).toBeDefined();
+  });
+
+  it("does not use a missing or conflicting citation to guess between repeated passages", () => {
+    const passageVerses = [
+      { ayah: 5, uthmani: "وَالَّذِينَ هُمْ لِفُرُوجِهِمْ حَافِظُونَ", imlaei: "والذين هم لفروجهم حافظون" },
+      { ayah: 6, uthmani: "إِلَّا عَلَىٰ أَزْوَاجِهِمْ أَوْ مَا مَلَكَتْ أَيْمَانُهُمْ فَإِنَّهُمْ غَيْرُ مَلُومِينَ", imlaei: "الا على ازواجهم او ما ملكت ايمانهم فانهم غير ملومين" },
+      { ayah: 7, uthmani: "فَمَنِ ابْتَغَىٰ وَرَاءَ ذَٰلِكَ فَأُولَٰئِكَ هُمُ الْعَادُونَ", imlaei: "فمن ابتغى وراء ذلك فاولئك هم العادون" }
+    ];
+    const duplicateRecords: QuranAyahRecord[] = [
+      ...passageVerses.map(verse => ({
+        id: "23:" + verse.ayah, surah: 23, ayah: verse.ayah, surahNameArabic: "المؤمنون",
+        uthmani: verse.uthmani, imlaei: verse.imlaei
+      })),
+      ...passageVerses.map(verse => ({
+        id: "70:" + (verse.ayah + 24), surah: 70, ayah: verse.ayah + 24, surahNameArabic: "المعارج",
+        uthmani: verse.uthmani, imlaei: verse.imlaei
+      }))
+    ];
+    const passageDetector = new QuranAyahDetector(new InMemoryQuranIndex(duplicateRecords));
+    const quotation = "﴿وَالَّذِينَ هُمْ لِفُرُوجِهِمْ حَافِظُونَ * إِلَّا عَلَىٰ أَزْوَاجِهِمْ أَوْ مَا مَلَكَتْ أَيْمَانُهُمْ فَإِنَّهُمْ غَيْرُ مَلُومِينَ * فَمَنِ ابْتَغَىٰ وَرَاءَ ذَٰلِكَ فَأُولَٰئِكَ هُمُ الْعَادُونَ﴾";
+
+    const withoutReference = passageDetector.detect(quotation);
+    const conflictingReference = passageDetector.detect(quotation + " [النور: ٥-٧]");
+
+    expect(withoutReference.some(match => match.matchedText === quotation)).toBe(false);
+    expect(conflictingReference.some(match => match.matchedText === quotation)).toBe(false);
+  });
 });
 
 describe("bracketed quotation integrity", () => {
