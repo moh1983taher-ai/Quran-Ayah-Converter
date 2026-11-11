@@ -1511,68 +1511,6 @@ async function applyApprovedReplacements(): Promise<void> {
       }
     }
 
-    } else {
-      setApplyProgress(2, "التحقق من المستند", "مقارنة النص الحالي بالنص الذي فُحص وتثبيت مواضع الاستبدال");
-      await yieldToUi();
-
-      await Word.run(async context => {
-        const paragraphs = context.document.body.paragraphs.load("items");
-        await context.sync();
-
-        const currentRanges = entries.map(entry => {
-          const paragraph = paragraphs.items[entry.paragraphIndex];
-          if (!paragraph) throw new Error("لم تعد الفقرة الأصلية موجودة؛ أُلغي الاستبدال.");
-          return paragraph.getRange("Content").load("text");
-        });
-        await context.sync();
-
-        const rangeRequests = entries.map((entry, index) => {
-          const paragraph = paragraphs.items[entry.paragraphIndex]!;
-          const currentText = currentRanges[index]!.text;
-          if (currentText.slice(entry.start, entry.end) !== entry.expectedText) {
-            throw new Error("تغير النص أو موضع إحدى الآيات بعد الفحص؛ أُلغي الاستبدال حمايةً للمستند.");
-          }
-          return {
-            searchScope: paragraph.getRange("Content"),
-            snapshot: currentText,
-            start: entry.start,
-            end: entry.end
-          };
-        });
-
-        const resolvedRanges: WordRange[] = [];
-        const applyBatchSize = 60;
-        const totalBatches = Math.ceil(rangeRequests.length / applyBatchSize);
-        try {
-          for (let offset = 0; offset < rangeRequests.length; offset += applyBatchSize) {
-            const batch = rangeRequests.slice(offset, offset + applyBatchSize);
-            setApplyProgress(
-              2,
-              "تثبيت مواضع الآيات",
-              `الدفعة ${Math.floor(offset / applyBatchSize + 1).toLocaleString("ar")} من ${totalBatches.toLocaleString("ar")} · تم التحقق من ${offset.toLocaleString("ar")} من ${rangeRequests.length.toLocaleString("ar")}`
-            );
-            await yieldToUi();
-            const results = await resolveReviewedRangesBatch(context, batch);
-            const failed = results.find(result => !result.range);
-            if (failed) {
-              throw new Error(failed.error ?? "تعذر التحقق من أحد مواضع الآيات؛ لم يُعدّل المستند.");
-            }
-            resolvedRanges.push(...results.map(result => result.range!));
-          }
-        } catch (error) {
-          for (const range of resolvedRanges) context.trackedObjects.remove(range);
-          if (resolvedRanges.length) await context.sync();
-          throw error;
-        }
-
-        const resolvedEntries: ResolvedApplyEntry[] = entries.map((entry, index) => ({
-          ...entry,
-          range: resolvedRanges[index]!,
-          paragraphText: currentRanges[index]!.text
-        }));
-        await applyResolvedEntries(context, resolvedEntries, citationByItem, quranIndex);
-      });
-    }
 
     const reviewForEntry = (entry: ApplyEntry): QuranCitationReview | undefined =>
       citationReviewByItem.get(entry.item.id) ?? entry.item.citationReview;
