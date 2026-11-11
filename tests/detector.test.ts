@@ -518,6 +518,26 @@ describe("multi-ayah bracketed excerpt continuity", () => {
     )).toBe(true);
   });
 
+  it("resolves the repeated passage with encoded whitespace and escaped stars", () => {
+    const passageVerses = [
+      { ayah: 5, uthmani: "وَالَّذِينَ هُمْ لِفُرُوجِهِمْ حَافِظُونَ", imlaei: "والذين هم لفروجهم حافظون" },
+      { ayah: 6, uthmani: "إِلَّا عَلَىٰ أَزْوَاجِهِمْ أَوْ مَا مَلَكَتْ أَيْمَانُهُمْ فَإِنَّهُمْ غَيْرُ مَلُومِينَ", imlaei: "الا على ازواجهم او ما ملكت ايمانهم فانهم غير ملومين" },
+      { ayah: 7, uthmani: "فَمَنِ ابْتَغَىٰ وَرَاءَ ذَٰلِكَ فَأُولَٰئِكَ هُمُ الْعَادُونَ", imlaei: "فمن ابتغى وراء ذلك فاولئك هم العادون" }
+    ];
+    const duplicateRecords: QuranAyahRecord[] = [
+      ...passageVerses.map(verse => ({ id: "23:" + verse.ayah, surah: 23, ayah: verse.ayah, surahNameArabic: "المؤمنون", uthmani: verse.uthmani, imlaei: verse.imlaei })),
+      ...passageVerses.map(verse => ({ id: "70:" + (verse.ayah + 24), surah: 70, ayah: verse.ayah + 24, surahNameArabic: "المعارج", uthmani: verse.uthmani, imlaei: verse.imlaei }))
+    ];
+    const passageDetector = new QuranAyahDetector(new InMemoryQuranIndex(duplicateRecords));
+    const quotation = "﴿وَالَّذِينَ هُمْ لِفُرُوجِهِمْ حَافِظُونَ \\* إِلَّا عَلَىٰ أَزْوَاجِهِمْ أَوْ مَا مَلَكَتْ أَيْمَانُهُمْ فَإِنَّهُمْ غَيْرُ مَلُومِينَ \\* فَمَنِ ابْتَغَىٰ وَرَاءَ ذَٰلِكَ فَأُولَٰئِكَ هُمُ الْعَادُونَ﴾";
+    const matches = passageDetector.detect(quotation + "&#x20;[المؤمنون: ٥-٧]");
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.matchedText).toBe(quotation);
+    expect(matches[0]?.references).toEqual([{ surah: 23, ayah: 5 }, { surah: 23, ayah: 6 }, { surah: 23, ayah: 7 }]);
+    expect(matches[0]?.evidence.some(item => item.type === "explicit-reference" && item.detail.includes("المؤمنون"))).toBe(true);
+    expect(matches[0]?.replacementText).toBeDefined();
+  });
+
   it("uses an Al-Ma'arij range with mixed numeral forms to resolve the same passage", () => {
     const passageVerses = [
       { ayah: 5, uthmani: "وَالَّذِينَ هُمْ لِفُرُوجِهِمْ حَافِظُونَ", imlaei: "والذين هم لفروجهم حافظون" },
