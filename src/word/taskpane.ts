@@ -1078,73 +1078,96 @@ async function applyApprovedReplacements(): Promise<void> {
       const previous = ordered[i - 1]!;
       const current = ordered[i]!;
       if (previous.paragraphIndex === current.paragraphIndex &&
-          current.end > previous.start) {
+          current.verseEnd > previous.start) {
         throw new Error("تداخل نطاقا آيتين معتمدتين؛ أُلغي التنفيذ حمايةً للمستند.");
       }
     }
 
-    setApplyProgress(
-      3,
-      citationOptionsEnabled ? "التحقق من التخريجات وتجهيز التصحيح" : "تجهيز التحويل",
-      citationOptionsEnabled
-        ? correctCitations
-          ? `إعادة فحص ${ordered.length.toLocaleString("ar")} تخريجًا معتمدًا؛ تصحيح الخاطئ فقط دون إضافة تخريجات جديدة`
-          : `إعادة فحص ${ordered.length.toLocaleString("ar")} موضعًا؛ إضافة التخريجات المفقودة فقط`
-        : `إعداد النص البديل لـ ${ordered.length.toLocaleString("ar")} موضعًا وفق الخيارات المحددة`
-    );
-    await yieldToUi();
-
-    const replacements = ordered.map(entry => {
-      const finalVerseText = ensureOrnamentalVerseBrackets(entry.item.replacementText);
+    const convertVerses = byId<HTMLInputElement>("convertVerses").checked;
+    const plans = ordered.map(entry => {
       const expectedCitation = citationByItem.get(entry.item.id);
-      if (citationOptionsEnabled && quranIndex) {
-        const verified = verifyAndComposeQuranCitationReplacement(
-          finalVerseText,
-          entry.paragraphText,
-          entry.citationVerseEnd,
-          expectedCitation,
-          entry.item.references,
-          quranIndex,
-          { addMissing: addCitations, correctExisting: correctCitations },
-          entry.scope === "selection"
-            ? { start: 0, end: entry.paragraphText.length }
-            : undefined
-        );
-        // A citation that appeared or changed outside the range captured by the
-        // scan must not be silently omitted from Word replacement. Require a
-        // fresh scan so the entire citation can be guarded and replaced safely.
-        if (verified.review.status === "incorrect" &&
-            verified.review.end !== undefined &&
-            verified.review.end > entry.end) {
-          throw new Error("تغيّر التخريج بعد الفحص أو ظهر خارج نطاق الاستبدال المثبّت؛ أعد فحص النص ثم اعتمد النتائج حمايةً للمستند.");
-        }
-        citationReviewByItem.set(entry.item.id, verified.review);
-        return { entry, replacement: verified.replacementText };
-      }
-      return {
-        entry,
-        replacement: composeQuranCitationReplacement(
-          finalVerseText,
-          entry.item.citationReview,
-          expectedCitation,
-          { addMissing: addCitations, correctExisting: correctCitations }
-        )
-      };
+      const review = quranIndex
+        ? inspectAdjacentQuranCitation(
+            entry.paragraphText,
+            entry.citationVerseEnd,
+            expectedCitation,
+            entry.item.references,
+            quranIndex,
+            entry.scope === "selection"
+              ? { start: 0, end: entry.paragraphText.length }
+              : undefined
+          )
+        : entry.item.citationReview;
+      if (review) citationReviewByItem.set(entry.item.id, review);
+      const plan = createWordApplyPlan({
+        convertVerse: convertVerses,
+        addMissingCitation: addCitations,
+        correctExistingCitation: correctCitations,
+        review,
+        expectedCitation
+      });
+      return { entry, review, plan };
     });
 
-    setApplyProgress(
-      4,
-      "تطبيق الآيات وضبط الخط",
-      `استبدال ${replacements.length.toLocaleString("ar")} موضعًا وضبط خط المصحف العثماني في Word`
-    );
+    setApplyProgress(3, "التحقق من نطاقات التنفيذ",
+      `إعادة التحقق من ${plans.length.toLocaleString("ar")} وحدة وفصل نطاق الآية عن نطاق التخريج`);
     await yieldToUi();
 
-    for (const { entry, replacement } of replacements) {
-      const inserted = entry.range.insertText(replacement, "Replace");
+    const citationRanges: Array<{ itemId: string; range: WordRange; text: string }> = [];
+    for (const { entry, review, plan } of plans) {
+      if (plan.citationEdit.kind !== "replace") continue;
+      if (!review?.existingCitation) {
+        throw new Error("تعذر تثبيت التخريج الخاطئ وحده؛ أعد فحص النص قبل الاعتماد.");
+      }
+      const paragraph = entry.range.paragraphs;
+      paragraph.load("items");
+      await context.sync();
+      const paragraphRange = paragraph.items[0]?.getRange("Content");
+      if (!paragraphRange) throw new Error("تعذر الوصول إلى الفقرة لتصحيح التخريج.");
+      const matches = paragraphRange.search(review.existingCitation, {
+        matchCase: true,
+        matchWholeWord: false
+      }).load("items");
+      await context.sync();
+      if (matches.items.length !== 1 || matches.items[0]!.text !== review.existingCitation) {
+        throw new Error("التخريج المكرر أو المتغير لا يمكن تثبيت موضعه بأمان؛ لم يُجرَ أي تعديل.");
+      }
+      citationRanges.push({
+        itemId: entry.item.id,
+        range: matches.items[0]!,
+        text: plan.citationEdit.text
+      });
+    }
+
+    setApplyProgress(4, "تنفيذ العمليات المحددة",
+      `تحويل ${plans.filter(p => p.plan.convertVerse).length.toLocaleString("ar")} آية · تصحيح ${citationRanges.length.toLocaleString("ar")} تخريج · إضافة ${plans.filter(p => p.plan.citationEdit.kind === "insert").length.toLocaleString("ar")} تخريج`);
+    await yieldToUi();
+
+    // Citation-only operations target their own ranges. Insertions are made
+    // after the verse range; corrections replace only the citation range.
+    for (const { entry, plan } of plans) {
+      if (plan.citationEdit.kind === "insert") {
+        entry.range.insertText(
+          plan.citationEdit.separator + plan.citationEdit.text,
+          "After"
+        );
+      }
+    }
+    for (const operation of citationRanges) {
+      operation.range.insertText(operation.text, "Replace");
+    }
+    // Verse conversion is deliberately last and touches only the verse range.
+    for (const { entry, plan } of plans) {
+      if (!plan.convertVerse) continue;
+      const inserted = entry.range.insertText(
+        ensureOrnamentalVerseBrackets(entry.item.replacementText),
+        "Replace"
+      );
       inserted.font.name = "KFGQPC HAFS Uthmanic Script";
     }
     await context.sync();
     for (const entry of entries) context.trackedObjects.remove(entry.range);
+    for (const operation of citationRanges) context.trackedObjects.remove(operation.range);
     await context.sync();
   };
 
