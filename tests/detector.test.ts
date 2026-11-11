@@ -206,7 +206,7 @@ describe("QuranAyahDetector", () => {
       { quote: "مِّن نَّخِيلٍ وَأَعْنَابٍ", surah: 23, ayah: 19, repeated: true },
       { quote: "وَمِنْهَا تَأْكُلُونَ", surah: 23, ayah: 19, repeated: true },
       { quote: "فَأَنشَأْنَا", surah: 23, ayah: 19 },
-      { quote: "لَّكُمْ فِيهَا", surah: 23, ayah: 19, ambiguous: true },
+      { quote: "لكم فيها", surah: 23, ayah: 19, ambiguous: true },
       { quote: "فَاسْلُكِي سُبُلَ رَبِّكِ ذُلُلً", surah: 16, ayah: 69 }
     ];
 
