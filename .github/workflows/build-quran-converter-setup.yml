@@ -2,6 +2,13 @@ name: Build Quran Ayah Converter Setup
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'installer/Install-QuranAyahConverter.ps1'
+      - 'installer/QuranAyahConverterSetup.iss'
+      - 'manifest.xml'
+      - '.github/workflows/build-quran-converter-setup.yml'
 
 permissions:
   contents: write
