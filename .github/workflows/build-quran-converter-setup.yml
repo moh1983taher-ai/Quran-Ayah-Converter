@@ -1,0 +1,102 @@
+name: Build Quran Ayah Converter Setup
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: quran-ayah-converter-setup
+  cancel-in-progress: false
+
+jobs:
+  build-setup:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Verify application build and tests
+        shell: pwsh
+        run: |
+          npm install
+          npm run import:kfgqpc
+          npm run typecheck
+          npm test
+          npm run build:taskpane
+
+      - name: Validate installer script and manifest
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            "installer/Install-QuranAyahConverter.ps1",
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | Format-List | Out-String | Write-Error
+            exit 1
+          }
+
+          [xml]$manifest = Get-Content -Raw -Encoding UTF8 manifest.xml
+          $appId = $manifest.SelectSingleNode("/*[local-name()='OfficeApp']/*[local-name()='Id']").InnerText
+          if ($appId -ne "4d4f5a8e-0c2e-4d89-9b45-7a2e0a7e1f36") {
+            throw "Unexpected Quran Ayah Converter AppId: $appId"
+          }
+
+          $installer = Get-Content -Raw -Encoding UTF8 installer/Install-QuranAyahConverter.ps1
+          foreach ($forbidden in @("New-SmbShare","Remove-SmbShare","New-ItemProperty","Set-ItemProperty","Remove-ItemProperty")) {
+            if ($installer.Contains($forbidden)) {
+              throw "Installer must not create/remove catalog shares or change TrustedCatalog registry values: $forbidden"
+            }
+          }
+          if (-not $installer.Contains("f8a582b1-eaf2-44f9-8166-d034255586ad")) {
+            throw "Installer must identify and reuse the existing Word-AI-Assistant catalog."
+          }
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup --yes --no-progress
+          $programFilesX86 = [Environment]::GetFolderPath('ProgramFilesX86')
+          $iscc = Join-Path $programFilesX86 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw "Inno Setup compiler not found: $iscc" }
+          & $iscc "installer/QuranAyahConverterSetup.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed: $LASTEXITCODE" }
+
+      - name: Generate SHA-256 checksum
+        shell: pwsh
+        run: |
+          $setup = "dist/QuranAyahConverter-Setup.exe"
+          if (-not (Test-Path $setup)) { throw "Setup executable was not generated." }
+          $hash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  QuranAyahConverter-Setup.exe" | Set-Content "dist/QuranAyahConverter-Setup.exe.sha256" -Encoding ascii
+
+      - name: Publish installer release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: quran-ayah-converter-setup-v1.0.0
+          name: Quran Ayah Converter Setup v1.0.0
+          body: |
+            Arabic-language Windows installer for the existing Quran Ayah Converter Word add-in.
+
+            - Reuses the already registered ResearchTools trusted Office catalog that contains the existing Word-AI-Assistant manifest.
+            - Does not create a new SMB share or add a second Office trusted catalog.
+            - Installs the original add-in manifest using its existing App ID.
+            - Preserves Word-AI-Assistant.xml, Tools.xml, and all other catalog XML files.
+            - Backs up an older Quran Ayah Converter manifest before updating it.
+            - Stops safely if the active catalog cannot be identified or written to.
+          files: |
+            dist/QuranAyahConverter-Setup.exe
+            dist/QuranAyahConverter-Setup.exe.sha256
+          draft: false
+          prerelease: false
+          make_latest: false
